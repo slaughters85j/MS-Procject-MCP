@@ -57,6 +57,19 @@ except Exception as _e:
     def is_com_busy(exc):  # noqa: E302
         return False
 
+# Sprint 3: Response size management (Item #9)
+try:
+    from src.response import (
+        paginate, strip_empty, strip_empty_list, format_response,
+        prepare_task_response, prepare_resource_response,
+        DEFAULT_PAGE_LIMIT,
+    )
+    _RESPONSE_MGMT = True
+except Exception as _e:
+    logger.error("response module failed to load: %s", _e)
+    _RESPONSE_MGMT = False
+    DEFAULT_PAGE_LIMIT = 200
+
 # The hardening modules (WP-1 to WP-6) live in src/ next to this file. The server
 # still runs without them: each failure is logged, listed by health_check, and the
 # legacy tools keep working.
@@ -489,7 +502,9 @@ def close_project(save: bool = False) -> str:
 def get_tasks(
     include_summary: bool = False,
     outline_level: int = 0,
-    keyword: str = ""
+    keyword: str = "",
+    offset: int = 0,
+    limit: int = DEFAULT_PAGE_LIMIT,
 ) -> str:
     """
     Get all tasks from the active project.
@@ -498,6 +513,8 @@ def get_tasks(
         include_summary: Include summary/parent tasks (default False).
         outline_level:   Filter to a specific outline level (0 = all).
         keyword:         Filter tasks whose name contains this string (case-insensitive).
+        offset:          Pagination offset (default 0).
+        limit:           Page size (default 200, -1 for all).
     """
     app  = get_app()
     proj = get_proj(app)
@@ -514,7 +531,15 @@ def get_tasks(
             continue
         results.append(task_to_dict(t, proj))
 
-    return json.dumps({"count": len(results), "tasks": results}, indent=2)
+    if _RESPONSE_MGMT:
+        return prepare_task_response(results, offset=offset, limit=limit)
+    # Fallback: still respect offset/limit even without response module
+    total = len(results)
+    if offset > 0:
+        results = results[offset:]
+    if limit > 0:
+        results = results[:limit]
+    return json.dumps({"count": total, "tasks": results}, indent=2)
 
 
 @mcp.tool()
@@ -1328,11 +1353,14 @@ def get_task_dependencies(unique_id: int) -> str:
     except Exception:
         pass
 
-    return json.dumps({
+    result = {
         "task":        {"unique_id": unique_id, "name": target.Name},
         "predecessors": preds,
         "successors":   succs,
-    }, indent=2)
+    }
+    if _RESPONSE_MGMT:
+        return format_response(result)
+    return json.dumps(result, indent=2)
 
 
 # ---------------------------------------------------------------------------
@@ -1340,8 +1368,16 @@ def get_task_dependencies(unique_id: int) -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def get_resources() -> str:
-    """Get all resources in the active project."""
+def get_resources(
+    offset: int = 0,
+    limit: int = DEFAULT_PAGE_LIMIT,
+) -> str:
+    """Get all resources in the active project.
+
+    Args:
+        offset: Pagination offset (default 0).
+        limit:  Page size (default 200, -1 for all).
+    """
     app  = get_app()
     proj = get_proj(app)
 
@@ -1359,7 +1395,15 @@ def get_resources() -> str:
                 "task_count": r.Assignments.Count,
             })
 
-    return json.dumps({"count": len(results), "resources": results}, indent=2)
+    if _RESPONSE_MGMT:
+        return prepare_resource_response(results, offset=offset, limit=limit)
+    # Fallback: still respect offset/limit even without response module
+    total = len(results)
+    if offset > 0:
+        results = results[offset:]
+    if limit > 0:
+        results = results[:limit]
+    return json.dumps({"count": total, "resources": results}, indent=2)
 
 
 @mcp.tool()
@@ -1481,12 +1525,24 @@ def export_xml(output_path: str) -> str:
 # ---------------------------------------------------------------------------
 
 @mcp.tool()
-def search_tasks(query: str, include_summary: bool = False) -> str:
+def search_tasks(
+    query: str,
+    include_summary: bool = False,
+    offset: int = 0,
+    limit: int = DEFAULT_PAGE_LIMIT,
+) -> str:
     """
     Search for tasks by name (case-insensitive substring match).
     Returns matching tasks with their UniqueIDs for use in other tools.
+
+    Args:
+        query:           Search string (case-insensitive substring match on task name).
+        include_summary: Include summary/parent tasks (default False).
+        offset:          Pagination offset (default 0).
+        limit:           Page size (default 200, -1 for all).
     """
-    return get_tasks(include_summary=include_summary, keyword=query)
+    return get_tasks(include_summary=include_summary, keyword=query,
+                     offset=offset, limit=limit)
 
 
 @mcp.tool()
@@ -1640,6 +1696,8 @@ def get_wbs_structure(max_level: int = 0) -> str:
         # Push this node as potential parent
         stack.append(node)
 
+    if _RESPONSE_MGMT:
+        return format_response(root)
     return json.dumps(root, indent=2)
 
 
@@ -2096,6 +2154,16 @@ def filter_tasks(filters_json: str) -> str:
     total = len(matched)
     offset = f.get("offset", 0)
     limit  = f.get("limit", 0)
+
+    if _RESPONSE_MGMT:
+        # Use response module for pagination + stripping + formatting.
+        # limit=0 in filter_tasks means "all" — translate to -1 for paginate().
+        effective_limit = limit if limit > 0 else -1
+        return prepare_task_response(
+            matched, offset=offset, limit=effective_limit,
+        )
+
+    # Fallback: legacy behavior
     if offset > 0:
         matched = matched[offset:]
     if limit > 0:
@@ -5409,6 +5477,17 @@ try:
 except Exception as _e:
     logger.warning("Schema title stripping failed (harmless): %s", _e)
     _schema_stripped = 0
+
+# ---------------------------------------------------------------------------
+# Sprint 3: ToolAnnotations — classify all tools with MCP annotations.
+# Must run AFTER all tools are registered (including WP modules above).
+# ---------------------------------------------------------------------------
+try:
+    from src.annotations import apply_annotations
+    _tools_annotated = apply_annotations(mcp)
+except Exception as _e:
+    logger.warning("ToolAnnotations application failed (harmless): %s", _e)
+    _tools_annotated = 0
 
 
 # ---------------------------------------------------------------------------
