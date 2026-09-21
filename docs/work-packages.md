@@ -13,8 +13,7 @@ Before any work package begins:
 
 ### WP-1: Session ownership
 
-**Objective:** One Project instance, one owner process, explicit attach/detach,
-refuse to start if another COM client is already bound.
+**Objective:** One Project instance, one owner process, explicit attach/detach, refuse to start if another COM client is already bound.
 
 **Acceptance criteria:**
 - Server creates or attaches to exactly one Project.Application COM instance
@@ -25,7 +24,7 @@ refuse to start if another COM client is already bound.
 **Key tasks:**
 - Create ProjectSession class that wraps COM lifecycle
 - Implement attach/detach with ownership tracking (PID-based or mutex)
-- Add startup check: detect existing COM clients via ROT or process enumeration
+- Add startup check: detect existing COM clients via ROT (Running Object Table) or process enumeration
 - Add shutdown hook to release COM and optionally quit Project
 - Expose session_info tool returning owner PID, project path, connection state
 
@@ -37,8 +36,7 @@ refuse to start if another COM client is already bound.
 
 ### WP-2: Active-project identity
 
-**Objective:** Every mutating tool takes project_id or file path. Never trust
-"whatever is active." switch_project as a side effect is how you corrupt the wrong .mpp.
+**Objective:** Every mutating tool takes project_id or file path. Never trust "whatever is active." switch_project as a side effect is how you corrupt the wrong .mpp.
 
 **Acceptance criteria:**
 - All mutating tools require an explicit project identifier (file path or hash)
@@ -61,19 +59,19 @@ refuse to start if another COM client is already bound.
 
 ### WP-3: Verify-after-write
 
-**Objective:** After every mutation, re-read the fields you think you set and
-return {requested, actual, drifted}. Project will lie to you via recalculation.
+**Objective:** After every mutation, re-read the fields you think you set and return {requested, actual, drifted}. Project will lie to you via recalculation.
 
 **Acceptance criteria:**
 - Every mutation returns a verification payload: {requested, actual, drifted}
-- Drifted fields are flagged with the reason when detectable
+- Drifted fields are flagged with the reason (recalculation, constraint, etc.) when detectable
 - Agent can distinguish "write succeeded" from "write succeeded but Project changed the value"
 
 **Key tasks:**
 - Create verify_write() utility: takes field map, re-reads via COM, compares
 - Integrate into all mutation tools as a post-write step
-- Define drift detection: exact match, tolerance for dates, tolerance for durations
+- Define drift detection: exact match, tolerance for dates (±1 day for scheduling), tolerance for durations
 - Return structured payload in tool response
+- Log drifts for debugging
 
 **Dependencies:** WP-2 (needs stable project identity)
 **Complexity:** M
@@ -83,8 +81,7 @@ return {requested, actual, drifted}. Project will lie to you via recalculation.
 
 ### WP-4: Calculate policy
 
-**Objective:** Explicit calculate_project vs deferred calc. Do not let 40 COM
-writes trigger 40 full recalcs on a 10k-task file.
+**Objective:** Explicit calculate_project vs deferred calc. Do not let 40 COM writes trigger 40 full recalcs on a 10k-task file.
 
 **Acceptance criteria:**
 - Server can suppress automatic calculation during batch operations
@@ -97,17 +94,17 @@ writes trigger 40 full recalcs on a 10k-task file.
 - Create calculate_project tool
 - Add calc_mode parameter to batch operations (auto/manual/deferred)
 - Restore original calc setting on session detach
+- Document the tradeoff: deferred calc means intermediate reads may be stale
 
 **Dependencies:** WP-2 (needs project identity for scoping)
 **Complexity:** S
-**Risks:** Some COM operations may force a calc regardless. Need to test empirically.
+**Risks:** Some COM operations may force a calc regardless of the setting. Need to test empirically.
 
 ---
 
 ### WP-5: COM proxy refresh
 
-**Objective:** Drop cached Task/Resource references after switch, save, or insert.
-Re-resolve by UniqueID every time.
+**Objective:** Drop cached Task/Resource references after switch, save, or insert. Re-resolve by UniqueID every time.
 
 **Acceptance criteria:**
 - No cached COM object references survive a save, switch, or insert operation
@@ -119,18 +116,17 @@ Re-resolve by UniqueID every time.
 - Invalidate any internal caches on save/switch/insert events
 - Add COM error handling: detect RPC_E_DISCONNECTED and similar stale-proxy errors
 - Re-resolve transparently on stale proxy detection (one retry, then error)
+- Remove any global task/resource caches from existing code
 
 **Dependencies:** WP-2 (needs project identity)
 **Complexity:** M
-**Risks:** UniqueID resolution requires iterating Tasks collection each time. May need an index for performance.
+**Risks:** UniqueID resolution requires iterating the Tasks collection each time. May need an index for performance on large files.
 
 ---
 
 ### WP-6: Concurrency and UI
 
-**Objective:** Kill the "don't click the GUI" rule by making the server start
-Project invisible (Visible = False) for unattended work, or by locking the UI
-during a tool call.
+**Objective:** Kill the "don't click the GUI" rule by making the server start Project invisible (Visible = False) for unattended work, or by locking the UI during a tool call.
 
 **Acceptance criteria:**
 - Server can run Project in invisible mode (Visible = False)
@@ -142,22 +138,24 @@ during a tool call.
 - Add startup config: headless mode (Visible = False) vs. visible mode
 - In visible mode: set Application.ScreenUpdating = False during tool calls
 - Add try/finally to ensure ScreenUpdating is restored on error
+- Test: open Project visible, run a tool, click around — no corruption
+- Document the tradeoff: invisible mode is safer but user can't see progress
 
 **Dependencies:** WP-1 (needs ProjectSession for lifecycle control)
 **Complexity:** S
-**Risks:** Some Project operations may force the window visible.
+**Risks:** Some Project operations may force the window visible. Invisible mode may not work with all Project editions.
 
 ---
 
 ### WP-7: Idempotent bulk ops
 
-**Objective:** Bulk add/update should be transactional from the agent's point of
-view: dry-run, apply, report failures per UniqueID, no silent partial success.
+**Objective:** Bulk add/update should be transactional from the agent's point of view: dry-run, apply, report failures per UniqueID, no silent partial success.
 
 **Acceptance criteria:**
 - Bulk operations support dry-run mode (validate without applying)
 - Apply mode returns per-item results: {UniqueID, status, error}
 - Partial failures are reported per item, not as a single error
+- Agent can retry failed items without re-applying succeeded ones
 - Operations are idempotent: applying the same bulk op twice produces the same result
 
 **Key tasks:**
@@ -167,6 +165,7 @@ view: dry-run, apply, report failures per UniqueID, no silent partial success.
 - Add idempotency: check current state before applying, skip if already matches
 - Wrap bulk ops in deferred calc (WP-4) automatically
 - Use verify-after-write (WP-3) on each item
+- Use COM proxy refresh (WP-5) between items if needed
 
 **Dependencies:** WP-2, WP-3, WP-4, WP-5
 **Complexity:** L
@@ -182,6 +181,7 @@ view: dry-run, apply, report failures per UniqueID, no silent partial success.
 - Test suite launches Project programmatically (no human setup)
 - Uses fixture .mpp files (checked into repo)
 - Tears down cleanly: quits Project, releases COM, deletes temp files
+- Tests run in CI on a Windows runner with Project installed
 - Each test gets a fresh Project instance (no cross-test contamination)
 
 **Key tasks:**
@@ -190,6 +190,7 @@ view: dry-run, apply, report failures per UniqueID, no silent partial success.
 - Write tests for WP-1 through WP-7
 - Add pytest conftest.py with Project session fixture
 - Document CI setup: Windows runner requirements, Project license
+- Add test workflow to GitHub Actions (or document manual test procedure)
 
 **Dependencies:** WP-1 through WP-7 (tests validate all prior work)
 **Complexity:** L
@@ -206,7 +207,4 @@ view: dry-run, apply, report failures per UniqueID, no silent partial success.
 
 ## Language decision
 
-Python + pywin32 is fine for a hardened fork. C# with the official MCP SDK is
-cleaner long-term on Windows, but it is a rewrite, not a fork. **Fork first,
-extract a ProjectSession + TaskStore layer, then decide if the language is the
-bottleneck.**
+Python + pywin32 is fine for a hardened fork. C# with the official MCP SDK is cleaner long-term on Windows, but it is a rewrite, not a fork. **Fork first, extract a ProjectSession + TaskStore layer, then decide if the language is the bottleneck.**
