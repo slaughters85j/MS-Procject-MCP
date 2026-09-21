@@ -1,0 +1,21 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.slaughters85j/msproject-mcp",
+  "description": "Control Microsoft Project via COM automation through the Model Context Protocol. Session-managed COM lifecycle, verify-after-write, bulk operations with dry-run, and UniqueID-based task resolution.",
+  "version": "0.0.0-dev",
+  "repository": {
+    "url": "https://github.com/slaughters85j/MS-Procject-MCP",
+    "source": "github"
+  },
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "msproject-mcp",
+      "version": "0.0.0-dev",
+      "runtime": "python",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

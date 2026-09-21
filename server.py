@@ -14,7 +14,14 @@ import os
 import sys
 from mcp.server.fastmcp import FastMCP
 
-mcp = FastMCP("MS Project")
+# Sprint 2: Server instructions for LLM clients (Item #13).
+# Imported here so the instructions string is available before mcp is created.
+try:
+    from src.tool_guide import SERVER_INSTRUCTIONS as _SERVER_INSTRUCTIONS
+except Exception:
+    _SERVER_INSTRUCTIONS = ""
+
+mcp = FastMCP("MS Project", instructions=_SERVER_INSTRUCTIONS)
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -39,6 +46,16 @@ except Exception as _e:
         return False
     def dry_run_response(tool, params):  # noqa: E302
         return "{}"
+
+# Sprint 2: COM retry with geometric backoff
+try:
+    from src.com_retry import com_call, is_com_busy
+except Exception as _e:
+    logger.error("com_retry module failed to load: %s", _e)
+    def com_call(func, **kwargs):  # noqa: E302
+        return func()
+    def is_com_busy(exc):  # noqa: E302
+        return False
 
 # The hardening modules (WP-1 to WP-6) live in src/ next to this file. The server
 # still runs without them: each failure is logged, listed by health_check, and the
@@ -74,14 +91,22 @@ def _find_app():
     Prefers the WP-1 session's app when attached: Office apps started by automation
     can stay out of the Running Object Table, so GetActiveObject may not find a
     hidden instance that the session launched.
+
+    Uses com_call for retry on transient COM busy errors.
     """
     if get_session is not None and get_session().is_attached:
         return get_session().app
     import win32com.client
     try:
-        return win32com.client.GetActiveObject("MSProject.Application")
+        return com_call(
+            lambda: win32com.client.GetActiveObject("MSProject.Application"),
+            label="GetActiveObject",
+        )
     except Exception as e:
-        logger.debug("GetActiveObject failed (%s): %s", type(e).__name__, e)
+        if is_com_busy(e):
+            logger.warning("GetActiveObject: COM busy after all retries: %s", e)
+        else:
+            logger.debug("GetActiveObject failed (%s): %s", type(e).__name__, e)
         return None
 
 
@@ -101,16 +126,36 @@ def _launch_app():
 
 
 def get_app(require_project=True):
-    """Get running MS Project instance. Raises if not running."""
+    """Get running MS Project instance.
+
+    Raises RuntimeError with diagnostic guidance covering the three most common
+    failure modes (adapted from devGPL fork, Item #8):
+      1. MS Project not running
+      2. Elevated shell hiding the Running Object Table entry
+      3. Wrong Windows logon session (e.g. SSH)
+    """
     app = _find_app()
     if app is None:
         raise RuntimeError(
-            "MS Project is not running. Open MS Project and load a file first."
+            "Could not attach to MS Project. Check, in order:\n"
+            "  1. MS Project is running with a project file open.\n"
+            "  2. This server was NOT started from an elevated (admin) shell.\n"
+            "     'Run as administrator' hides a normally-launched MS Project\n"
+            "     from the Running Object Table rather than helping.\n"
+            "  3. This server runs in the same Windows logon session as\n"
+            "     MS Project — starting the server over SSH or as a service\n"
+            "     places it in session 0, which cannot see the interactive\n"
+            "     desktop's COM registrations."
         )
-    if require_project and app.Projects.Count == 0:
-        raise RuntimeError(
-            "No project file is open in MS Project. Please open a file first."
-        )
+    if require_project:
+        try:
+            count = com_call(lambda: app.Projects.Count, label="Projects.Count")
+        except Exception:
+            count = app.Projects.Count
+        if count == 0:
+            raise RuntimeError(
+                "No project file is open in MS Project. Open a .mpp file first."
+            )
     return app
 
 
@@ -5346,6 +5391,24 @@ def _register_wp_tools():
 
 
 _register_wp_tools()
+
+# Sprint 2: Register get_tool_guide meta-tool (Item #13).
+try:
+    from src.tool_guide import register_tool_guide
+    register_tool_guide(mcp)
+except Exception as _e:
+    logger.warning("tool_guide registration failed: %s", _e)
+
+# ---------------------------------------------------------------------------
+# Sprint 2: Schema size reduction — strip decorative "title" from tool schemas.
+# Must run AFTER all tools are registered (including WP modules above).
+# ---------------------------------------------------------------------------
+try:
+    from src.schema_strip import strip_schema_titles
+    _schema_stripped = strip_schema_titles(mcp)
+except Exception as _e:
+    logger.warning("Schema title stripping failed (harmless): %s", _e)
+    _schema_stripped = 0
 
 
 # ---------------------------------------------------------------------------

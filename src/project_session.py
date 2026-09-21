@@ -244,13 +244,27 @@ class ProjectSession:
                     existing_pids,
                 )
                 try:
-                    self._app = win32com.client.GetActiveObject(
-                        "MSProject.Application"
-                    )
+                    # Use com_retry if available for transient busy errors
+                    try:
+                        from src.com_retry import com_call
+                        self._app = com_call(
+                            lambda: win32com.client.GetActiveObject(
+                                "MSProject.Application"
+                            ),
+                            label="Session.GetActiveObject",
+                        )
+                    except ImportError:
+                        self._app = win32com.client.GetActiveObject(
+                            "MSProject.Application"
+                        )
                     self._we_launched = False
                 except Exception as e:
                     logger.warning(
-                        "GetActiveObject failed despite running process: %s", e
+                        "GetActiveObject failed despite running process "
+                        "(PID %s): %s. This usually means the server is "
+                        "running elevated (admin) or in a different logon "
+                        "session than MS Project. Falling back to Dispatch.",
+                        existing_pids, e,
                     )
                     # Process exists but COM binding failed — try Dispatch
                     self._app = win32com.client.Dispatch(

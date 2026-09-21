@@ -25,6 +25,7 @@ SERVER_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "server.py"
 )
 LEGACY_TOOL_COUNT = 99
+SPRINT2_TOOLS = {"get_tool_guide"}                                       # Sprint 2
 WP_TOOLS = {
     "session_attach", "session_detach", "session_info",                  # WP-1
     "get_project_identity", "validate_project", "switch_project_confirmed",
@@ -56,7 +57,7 @@ class TestRegistration:
     def test_legacy_and_wp_tools_register_side_by_side(self, server):
         tools = server.mcp.tools
         assert WP_TOOLS <= set(tools)
-        assert len(tools) == LEGACY_TOOL_COUNT + len(WP_TOOLS)
+        assert len(tools) == LEGACY_TOOL_COUNT + len(WP_TOOLS) + len(SPRINT2_TOOLS)
         assert server.mcp.duplicates == []
         assert server.WP_LOAD_ERRORS == []
 
@@ -80,6 +81,21 @@ class TestRegistration:
         assert "ModuleNotFoundError" in server.WP_LOAD_ERRORS[0]
         assert any("src.missing_module" in r.getMessage() for r in caplog.records)
         assert WP_TOOLS <= set(server.mcp.tools)
+
+
+class TestToolGuideAccuracy:
+    def test_tool_guide_names_are_subset_of_registered_tools(self, server):
+        """Every tool name in _TOOL_GUIDE must be a real registered tool."""
+        from src.tool_guide import _TOOL_GUIDE
+        guide_names = set()
+        for category_tools in _TOOL_GUIDE["tool_categories"].values():
+            guide_names.update(category_tools)
+        for pair in _TOOL_GUIDE["bulk_pairs"].values():
+            guide_names.add(pair["single"])
+            guide_names.add(pair["bulk"])
+        registered = set(server.mcp.tools.keys())
+        missing = guide_names - registered
+        assert missing == set(), f"Tool guide references non-existent tools: {sorted(missing)}"
 
 
 class TestHealthCheck:
@@ -115,7 +131,7 @@ class TestConnectHelpers:
 
     def test_get_app_not_running_message(self, server, monkeypatch):
         monkeypatch.setattr(server, "_find_app", lambda: None)
-        with pytest.raises(RuntimeError, match="MS Project is not running"):
+        with pytest.raises(RuntimeError, match="Could not attach to MS Project"):
             server.get_app()
 
     def test_open_project_launches_when_not_running(self, server, monkeypatch):
