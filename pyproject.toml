@@ -44,8 +44,8 @@ dev = [
 msproject-mcp = "server:main"
 
 [project.urls]
-Homepage = "https://github.com/your-org/MS-Procject-MCP"
-Issues = "https://github.com/your-org/MS-Procject-MCP/issues"
+Homepage = "https://github.com/slaughters85j/MS-Procject-MCP"
+Issues = "https://github.com/slaughters85j/MS-Procject-MCP/issues"
 
 [tool.setuptools]
 py-modules = ["server"]
