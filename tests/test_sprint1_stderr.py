@@ -7,6 +7,7 @@ import os
 import re
 import sys
 import ast
+import glob
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -15,17 +16,22 @@ SERVER_PY = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "server.py",
 )
+SRC_DIR = os.path.join(os.path.dirname(SERVER_PY), "src")
+# server.py plus the modules its core tools moved into.
+STDIO_FILES = [SERVER_PY, os.path.join(SRC_DIR, "com_helpers.py"), os.path.join(SRC_DIR, "guards.py")]
+STDIO_FILES += sorted(glob.glob(os.path.join(SRC_DIR, "tools", "*.py")))
 
 
 class TestStderrFix:
     """Verify server.py has no stdout print() calls."""
 
-    def test_no_bare_print_calls(self):
-        """All print() calls in server.py must use file=sys.stderr."""
-        with open(SERVER_PY, "r", encoding="utf-8") as f:
+    @pytest.mark.parametrize("path", STDIO_FILES, ids=os.path.basename)
+    def test_no_bare_print_calls(self, path):
+        """All print() calls in server.py and the core tool modules must use file=sys.stderr."""
+        with open(path, "r", encoding="utf-8") as f:
             source = f.read()
 
-        tree = ast.parse(source, filename="server.py")
+        tree = ast.parse(source, filename=path)
         violations = []
 
         for node in ast.walk(tree):
@@ -53,7 +59,7 @@ class TestStderrFix:
                 violations.append(node.lineno)
 
         assert violations == [], (
-            f"print() calls without file=sys.stderr found on lines: {violations}. "
+            f"print() calls without file=sys.stderr found in {path} on lines: {violations}. "
             f"Bare print() corrupts the MCP stdio transport."
         )
 

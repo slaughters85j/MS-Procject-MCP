@@ -11,15 +11,11 @@ import pytest
 
 
 def _make_server_module():
-    """Import server.py in a way that exercises get_app without live COM.
-
-    We monkeypatch _find_app to return None so get_app raises, then
-    inspect the error message.
-    """
-    # We can import server directly — it loads on all platforms because
-    # COM imports are deferred inside function bodies.
-    import server
-    return server
+    """Return the module that owns get_app, so patching its _find_app exercises get_app
+    without live COM. It loads on all platforms because COM imports are deferred inside
+    function bodies."""
+    from src import com_helpers
+    return com_helpers
 
 
 class TestGetAppErrorMessages:

@@ -18,7 +18,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from src import task_store
+from src import com_helpers, guards, task_store
+from src.tools import meta as meta_tools, project as project_tools
 from tests.fakes import FakeMCP
 
 SERVER_PATH = os.path.join(
@@ -59,7 +60,7 @@ class TestRegistration:
         assert WP_TOOLS <= set(tools)
         assert len(tools) == LEGACY_TOOL_COUNT + len(WP_TOOLS) + len(SPRINT2_TOOLS)
         assert server.mcp.duplicates == []
-        assert server.WP_LOAD_ERRORS == []
+        assert guards.WP_LOAD_ERRORS == []
 
     def test_switch_tools_keep_separate_signatures(self, server):
         tools = server.mcp.tools
@@ -71,14 +72,14 @@ class TestRegistration:
 
     def test_failed_module_is_logged_and_others_load(self, server, monkeypatch, caplog):
         monkeypatch.setattr(server, "mcp", FakeMCP())
-        monkeypatch.setattr(server, "WP_LOAD_ERRORS", [])
+        monkeypatch.setattr(guards, "WP_LOAD_ERRORS", [])
         monkeypatch.setattr(server, "WP_TOOL_MODULES",
                             (("src.missing_module", "register_x"),) + server.WP_TOOL_MODULES)
         with caplog.at_level(logging.ERROR):
             server._register_wp_tools()
-        assert len(server.WP_LOAD_ERRORS) == 1
-        assert "src.missing_module" in server.WP_LOAD_ERRORS[0]
-        assert "ModuleNotFoundError" in server.WP_LOAD_ERRORS[0]
+        assert len(guards.WP_LOAD_ERRORS) == 1
+        assert "src.missing_module" in guards.WP_LOAD_ERRORS[0]
+        assert "ModuleNotFoundError" in guards.WP_LOAD_ERRORS[0]
         assert any("src.missing_module" in r.getMessage() for r in caplog.records)
         assert WP_TOOLS <= set(server.mcp.tools)
 
@@ -100,14 +101,14 @@ class TestToolGuideAccuracy:
 
 class TestHealthCheck:
     def test_reports_load_errors(self, server, monkeypatch):
-        monkeypatch.setattr(server, "_find_app", lambda: None)
-        monkeypatch.setattr(server, "WP_LOAD_ERRORS", ["src.ui_tools failed to load (X): y"])
+        monkeypatch.setattr(meta_tools, "_find_app", lambda: None)
+        monkeypatch.setattr(guards, "WP_LOAD_ERRORS", ["src.ui_tools failed to load (X): y"])
         result = json.loads(server.mcp.tools["health_check"]())
         assert result["status"] == "disconnected"
         assert result["hardening_tool_errors"] == ["src.ui_tools failed to load (X): y"]
 
     def test_no_error_key_when_all_loaded(self, server, monkeypatch):
-        monkeypatch.setattr(server, "_find_app", lambda: None)
+        monkeypatch.setattr(meta_tools, "_find_app", lambda: None)
         result = json.loads(server.mcp.tools["health_check"]())
         assert "hardening_tool_errors" not in result
 
@@ -116,23 +117,23 @@ class TestConnectHelpers:
     def test_find_app_prefers_attached_session(self, server, monkeypatch):
         app = object()
         session = SimpleNamespace(is_attached=True, app=app)
-        monkeypatch.setattr(server, "get_session", lambda: session)
-        assert server._find_app() is app
+        monkeypatch.setattr(com_helpers, "get_session", lambda: session)
+        assert com_helpers._find_app() is app
 
     def test_launch_app_goes_through_session(self, server, monkeypatch):
         app = SimpleNamespace(DisplayAlerts=True)
         session = MagicMock()
         session.attach.return_value = SimpleNamespace(app=app)
-        monkeypatch.setattr(server, "get_session", lambda: session)
-        assert server._launch_app() is app
+        monkeypatch.setattr(com_helpers, "get_session", lambda: session)
+        assert com_helpers._launch_app() is app
         session.attach.assert_called_once()
         assert app.DisplayAlerts is False
         assert not hasattr(app, "Visible")  # the session owns visibility
 
     def test_get_app_not_running_message(self, server, monkeypatch):
-        monkeypatch.setattr(server, "_find_app", lambda: None)
+        monkeypatch.setattr(com_helpers, "_find_app", lambda: None)
         with pytest.raises(RuntimeError, match="Could not attach to MS Project"):
-            server.get_app()
+            com_helpers.get_app()
 
     def test_open_project_launches_when_not_running(self, server, monkeypatch):
         # Ensure safe_root doesn't interfere (may leak from other test modules)
@@ -144,8 +145,8 @@ class TestConnectHelpers:
         app.ActiveProject.configure_mock(Name="a.mpp", FullName="C:\\a.mpp",
                                          ProjectStart="2026-01-01", ProjectFinish="2026-02-01")
         app.ActiveProject.Tasks.Count = 3
-        monkeypatch.setattr(server, "_find_app", lambda: None)
-        monkeypatch.setattr(server, "_launch_app", lambda: app)
+        monkeypatch.setattr(project_tools, "_find_app", lambda: None)
+        monkeypatch.setattr(project_tools, "_launch_app", lambda: app)
         result = json.loads(server.mcp.tools["open_project"]("C:\\a.mpp"))
         app.FileOpen.assert_called_once_with("C:\\a.mpp")
         assert result["status"] == "opened"

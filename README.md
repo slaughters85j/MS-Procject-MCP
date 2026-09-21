@@ -52,7 +52,7 @@ The server communicates over stdio. Start MS Project and open a `.mpp` file befo
 
 ## Architecture
 
-The server is a single entry point (`server.py`, ~5,500 lines of legacy tools) backed by a `src/` package of hardening modules built in work packages WP-1 through WP-8. The hardening modules are optional: if any fail to load (e.g., running on a machine without pywin32), the legacy tools keep working and `health_check` reports what's missing.
+`server.py` is a thin entry point that creates the FastMCP instance and wires everything together. The core tools live in `src/tools/`, one module per domain (project, tasks, dependencies, resources, calendars, baselines, cost, critical path, and so on), sharing COM helpers from `src/com_helpers.py` and optional safety modules loaded through `src/guards.py`. They are backed by a `src/` package of hardening modules built in work packages WP-1 through WP-8. The hardening modules are optional: if any fail to load (e.g., running on a machine without pywin32), the legacy tools keep working and `health_check` reports what's missing.
 
 ### Hardening Work Packages
 

@@ -23,23 +23,33 @@ Thanks for your interest in contributing! Here's how to get started.
 
 ## Development
 
-All server code lives in a single file: `server.py`. New tools follow this pattern:
+`server.py` only wires the server together. Core tools live in `src/tools/`, one module per domain, each exposing a `register_<name>_tools(mcp)` function listed in `CORE_TOOL_MODULES` in `server.py`. Add a new tool to the module for its domain:
 
 ```python
-@mcp.tool()
-def your_tool(param: str) -> str:
-    """Short description of what the tool does."""
-    app  = get_app()
-    proj = get_proj(app)
+import json
 
-    # ... your logic ...
+from ..com_helpers import get_app, get_proj
 
-    return json.dumps({"status": "ok", ...}, indent=2)
+
+def register_example_tools(mcp):
+    """Register the example tools on the FastMCP instance."""
+
+    @mcp.tool()
+    def your_tool(param: str) -> str:
+        """Short description of what the tool does."""
+        app  = get_app()
+        proj = get_proj(app)
+
+        # ... your logic ...
+
+        return json.dumps({"status": "ok", ...}, indent=2)
 ```
+
+Import safety helpers (`validate_safe_path`, `is_dry_run`, `com_call`, the response helpers) from `src/guards.py`, never from their own modules: `guards` supplies fallback stubs so the server still starts when one of them fails to load. A new tool also needs an entry in `src/annotations.py`.
 
 ### Conventions
 
-- Use `get_app()` / `get_proj()` for COM access
+- Use `get_app()` / `get_proj()` from `src/com_helpers.py` for COM access
 - Use `_to_naive()` when comparing COM dates with `datetime.now()`
 - Use `_fmt_date()` to format dates for JSON output
 - Use `_parse_date()` to convert `YYYY-MM-DD` strings for COM input
