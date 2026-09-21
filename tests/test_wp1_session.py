@@ -20,6 +20,7 @@ from src.project_session import (
     ProjectSession,
     SessionState,
     SessionInfo,
+    PROJECT_PROCESS_NAMES,
     _find_existing_project_processes,
     get_session,
 )
@@ -177,6 +178,52 @@ class TestContextManager:
             with session:
                 assert session.is_attached
             assert not session.is_attached
+
+
+class TestConfigure:
+    """Test the configure() method (review fix #4)."""
+
+    def test_configure_updates_headless(self, fresh_session):
+        fresh_session.configure(headless=False)
+        assert fresh_session._headless is False
+
+    def test_configure_updates_allow_attach(self, fresh_session):
+        fresh_session.configure(allow_attach_existing=False)
+        assert fresh_session._allow_attach_existing is False
+
+    def test_configure_updates_quit_on_detach(self, fresh_session):
+        fresh_session.configure(quit_on_detach=True)
+        assert fresh_session._quit_on_detach is True
+
+    def test_configure_rejects_while_attached(self, mock_com):
+        session = ProjectSession()
+        with patch(
+            "src.project_session._find_existing_project_processes",
+            return_value=[],
+        ):
+            session.attach()
+            with pytest.raises(RuntimeError, match="Cannot reconfigure"):
+                session.configure(headless=False)
+            session.detach()
+
+    def test_configure_partial_update(self, fresh_session):
+        """Only passed kwargs are changed; others stay."""
+        original_headless = fresh_session._headless
+        fresh_session.configure(quit_on_detach=True)
+        assert fresh_session._headless == original_headless
+        assert fresh_session._quit_on_detach is True
+
+
+class TestProcessNames:
+    """Verify process name constants (review fix #1 and #7)."""
+
+    def test_no_publisher_in_process_names(self):
+        """MSPUB.EXE is Publisher, not Project — must not be present."""
+        for name in PROJECT_PROCESS_NAMES:
+            assert name != "MSPUB.EXE", "MSPUB.EXE is Publisher, not Project"
+
+    def test_winproj_in_process_names(self):
+        assert "WINPROJ.EXE" in PROJECT_PROCESS_NAMES
 
 
 class TestSingleton:

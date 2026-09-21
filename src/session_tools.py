@@ -40,9 +40,11 @@ def register_session_tools(mcp):
         """
         session = get_session()
 
-        # Apply configuration before attach
-        session._headless = headless
-        session._allow_attach_existing = allow_attach_existing
+        # Apply configuration via public API before attach
+        session.configure(
+            headless=headless,
+            allow_attach_existing=allow_attach_existing,
+        )
 
         session.attach()
         info = session.get_info()
@@ -58,7 +60,7 @@ def register_session_tools(mcp):
         """
         session = get_session()
         if quit_project:
-            session._quit_on_detach = True
+            session.configure(quit_on_detach=True)
         session.detach()
         return {"status": "detached", "quit_requested": quit_project}
 

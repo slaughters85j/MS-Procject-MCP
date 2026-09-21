@@ -17,6 +17,10 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Canonical MS Project process names for collision detection.
+# Used by both psutil and tasklist paths to ensure consistency.
+PROJECT_PROCESS_NAMES = ("WINPROJ.EXE",)
+
 
 class SessionState(Enum):
     """Lifecycle states for the Project COM session."""
@@ -51,9 +55,7 @@ def _find_existing_project_processes() -> list[int]:
     try:
         import psutil
         for proc in psutil.process_iter(["name", "pid"]):
-            if proc.info["name"] and proc.info["name"].upper() in (
-                "WINPROJ.EXE", "MSPUB.EXE"
-            ):
+            if proc.info["name"] and proc.info["name"].upper() in PROJECT_PROCESS_NAMES:
                 pids.append(proc.info["pid"])
         return pids
     except ImportError:
@@ -62,17 +64,18 @@ def _find_existing_project_processes() -> list[int]:
     # Fallback: tasklist on Windows
     try:
         import subprocess
-        result = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq WINPROJ.EXE", "/FO", "CSV", "/NH"],
-            capture_output=True, text=True, timeout=5
-        )
-        for line in result.stdout.strip().splitlines():
-            parts = line.strip('"').split('","')
-            if len(parts) >= 2:
-                try:
-                    pids.append(int(parts[1]))
-                except ValueError:
-                    continue
+        for proc_name in PROJECT_PROCESS_NAMES:
+            result = subprocess.run(
+                ["tasklist", "/FI", f"IMAGENAME eq {proc_name}", "/FO", "CSV", "/NH"],
+                capture_output=True, text=True, timeout=5
+            )
+            for line in result.stdout.strip().splitlines():
+                parts = line.strip('"').split('","')
+                if len(parts) >= 2:
+                    try:
+                        pids.append(int(parts[1]))
+                    except ValueError:
+                        continue
     except (FileNotFoundError, subprocess.TimeoutExpired):
         # Not on Windows or tasklist unavailable
         pass
@@ -122,6 +125,34 @@ class ProjectSession:
 
         # Register cleanup so we don't orphan COM references
         atexit.register(self._atexit_cleanup)
+
+    # ------------------------------------------------------------------
+    # Configuration
+    # ------------------------------------------------------------------
+
+    def configure(
+        self,
+        *,
+        headless: Optional[bool] = None,
+        allow_attach_existing: Optional[bool] = None,
+        quit_on_detach: Optional[bool] = None,
+    ) -> None:
+        """
+        Update session configuration before attach/detach.
+
+        Only updates fields that are explicitly passed (not None).
+        Raises if called while attached — reconfigure requires detach first.
+        """
+        if self._state == SessionState.ATTACHED:
+            raise RuntimeError(
+                "Cannot reconfigure while attached. Call detach() first."
+            )
+        if headless is not None:
+            self._headless = headless
+        if allow_attach_existing is not None:
+            self._allow_attach_existing = allow_attach_existing
+        if quit_on_detach is not None:
+            self._quit_on_detach = quit_on_detach
 
     # ------------------------------------------------------------------
     # Properties
@@ -174,6 +205,8 @@ class ProjectSession:
 
         Returns self for chaining.
         """
+        # TODO(WP-1): Add threading.Lock around state transitions if
+        # concurrent MCP dispatch is ever enabled. Currently single-threaded.
         if self._state == SessionState.ATTACHED:
             logger.warning("Already attached — ignoring duplicate attach()")
             return self
@@ -290,11 +323,16 @@ class ProjectSession:
 
                 # Release the COM reference
                 try:
-                    import pythoncom
-                    # Marshal release — prevents hanging COM ref
                     del self._app
                 except Exception as e:
                     logger.warning("COM release error: %s", e)
+
+            # Balance the CoInitialize() from attach()
+            try:
+                import pythoncom
+                pythoncom.CoUninitialize()
+            except Exception as e:
+                logger.warning("CoUninitialize error: %s", e)
 
         finally:
             self._app = None
@@ -366,6 +404,9 @@ def get_session() -> ProjectSession:
 
     This replaces the old get_app() pattern. Instead of grabbing whatever
     COM object is active, we maintain a single managed session.
+
+    TODO(WP-1): Add reset_session() to handle ERROR state recovery.
+    Currently a session stuck in ERROR requires process restart.
     """
     global _session
     if _session is None:
