@@ -40,6 +40,13 @@ Single-to-Bulk pairs:
 After any bulk manual-schedule change, call calculate_project to refresh dates.
 Use dry_run_bulk_update to preview bulk_update_tasks changes before applying.
 
+FAST READ PATH (mpxj):
+  mpxj_read_* tools read .mpp files from DISK — 20-30x faster than COM.
+  They do NOT require MS Project to be running. Cross-platform (Mac/Linux/Win).
+  IMPORTANT: They read the SAVED file. Unsaved changes are NOT reflected.
+  For live COM state, use get_tasks / get_resources / get_project_info.
+  Install: pip install 'msproject-mcp[mpxj]' (requires JDK/JRE).
+
 ENVIRONMENT:
   MSPROJECT_SAFE_ROOT   Directory all file tools are confined to (required).
   MSPROJECT_DRY_RUN=1   Read/preview-only mode; mutations logged but not applied.
@@ -154,6 +161,11 @@ _TOOL_GUIDE = {
             "resolve_task", "resolve_resource", "store_stats", "invalidate_store",
             "get_ui_mode", "set_ui_mode", "get_ui_state",
             "bulk_update", "bulk_status",
+        ],
+        "mpxj_fast_read": [
+            "mpxj_read_tasks", "mpxj_read_resources",
+            "mpxj_read_project_info", "mpxj_read_assignments",
+            "mpxj_read_calendars",
         ],
         "server_meta": [
             "health_check", "get_tool_guide",

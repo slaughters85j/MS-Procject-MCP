@@ -80,6 +80,7 @@ WP_TOOL_MODULES = (
     ("src.store_tools", "register_store_tools"),        # WP-5
     ("src.ui_tools", "register_ui_tools"),              # WP-6
     ("src.bulk_tools", "register_bulk_tools"),          # WP-7
+    ("src.mpxj_tools", "register_mpxj_tools"),          # Sprint 4: fast-read path
 )
 
 

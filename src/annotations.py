@@ -181,6 +181,13 @@ TOOL_ANNOTATIONS: Dict[str, Dict[str, Optional[bool]]] = {
     # --- WP-7: Bulk ops (registered via bulk_tools.py) ---
     "bulk_update":             {"title": "Bulk Update",             "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
     "bulk_status":             {"title": "Bulk Status",             "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
+
+    # --- Sprint 4: mpxj fast-read (reads SAVED .mpp file, no COM) ---
+    "mpxj_read_tasks":         {"title": "MPXJ Read Tasks",         "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
+    "mpxj_read_resources":     {"title": "MPXJ Read Resources",     "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
+    "mpxj_read_project_info":  {"title": "MPXJ Read Project Info",  "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
+    "mpxj_read_assignments":   {"title": "MPXJ Read Assignments",   "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
+    "mpxj_read_calendars":     {"title": "MPXJ Read Calendars",     "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
 }
 
 
