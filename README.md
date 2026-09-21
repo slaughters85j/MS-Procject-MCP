@@ -6,7 +6,8 @@ Control Microsoft Project via COM automation through the Model Context Protocol 
 
 - **Windows** with Microsoft Project installed (tested on MS Project 16.0)
 - **Python 3.10+**
-- **mcp** package: `pip install mcp`
+- Install all dependencies: `pip install -r requirements.txt`
+- **mcp** 1.x: `pip install "mcp<2"` (mcp 2.x removed `mcp.server.fastmcp`, which this server uses)
 - **pywin32** for COM: `pip install pywin32`
 - **python-dateutil** (optional, for `add_recurring_task`): `pip install python-dateutil`
 

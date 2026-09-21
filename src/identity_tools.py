@@ -64,13 +64,17 @@ def register_identity_tools(mcp):
         except RuntimeError as e:
             return {"valid": False, "error": str(e)}
 
-    @mcp.tool()
+    # Registered under its own name: the legacy server.py switch_project keeps its
+    # name and signature, and FastMCP skips a second tool with the same name.
+    @mcp.tool(name="switch_project_confirmed")
     def switch_project(project_name_or_index: str, confirm: bool = False) -> dict:
         """
         Explicitly switch the active project in MS Project.
 
         This is a DELIBERATE operation — never a side effect of another tool.
-        Requires confirm=True to actually execute the switch.
+        Requires confirm=True to actually execute the switch. Matches the exact
+        project name or 1-based index (the legacy switch_project tool switches
+        immediately and matches a name substring).
 
         Args:
             project_name_or_index: Project name or 1-based index.

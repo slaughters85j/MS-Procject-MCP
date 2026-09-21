@@ -46,13 +46,22 @@ class FakeApp:
 
 
 class FakeMCP:
-    """Captures functions registered with @mcp.tool()."""
+    """
+    Stand-in for FastMCP that captures functions registered with @mcp.tool().
+    Like FastMCP 1.x, the first tool with a name wins; later ones are recorded
+    in .duplicates and skipped.
+    """
 
-    def __init__(self):
+    def __init__(self, *args, **kwargs):
         self.tools = {}
+        self.duplicates = []
 
-    def tool(self):
+    def tool(self, name=None, **kwargs):
         def register(fn):
-            self.tools[fn.__name__] = fn
+            tool_name = name or fn.__name__
+            if tool_name in self.tools:
+                self.duplicates.append(tool_name)
+            else:
+                self.tools[tool_name] = fn
             return fn
         return register

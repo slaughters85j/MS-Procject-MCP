@@ -1,27 +1,86 @@
 """
 MS Project MCP Server
 Controls local Microsoft Project via COM automation.
-Install: pip install mcp
+Install: pip install -r requirements.txt
 Run:     python server.py
 Register in claude_desktop_config.json (see bottom of file).
 """
 
 import json
 import datetime
+import importlib
+import logging
+import os
+import sys
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("MS Project")
+logger = logging.getLogger(__name__)
+
+# The hardening modules (WP-1 to WP-6) live in src/ next to this file. The server
+# still runs without them: each failure is logged, listed by health_check, and the
+# legacy tools keep working.
+_SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
+if _SERVER_DIR not in sys.path:
+    sys.path.insert(0, _SERVER_DIR)
+
+WP_LOAD_ERRORS = []
+
+
+def _record_wp_error(module_name, exc):
+    """Log a hardening module that failed to load and keep the message for health_check."""
+    msg = f"{module_name} failed to load ({type(exc).__name__}): {exc}"
+    logger.error("Hardening tools unavailable: %s", msg)
+    WP_LOAD_ERRORS.append(msg)
+
+
+try:
+    from src.project_session import get_session
+except Exception as e:
+    get_session = None
+    _record_wp_error("src.project_session", e)
 
 # ---------------------------------------------------------------------------
 # COM helpers
 # ---------------------------------------------------------------------------
 
-def get_app(require_project=True):
-    """Get running MS Project instance. Raises if not running."""
+def _find_app():
+    """
+    Return the running MS Project COM app, or None if Project is not running.
+
+    Prefers the WP-1 session's app when attached: Office apps started by automation
+    can stay out of the Running Object Table, so GetActiveObject may not find a
+    hidden instance that the session launched.
+    """
+    if get_session is not None and get_session().is_attached:
+        return get_session().app
     import win32com.client
     try:
-        app = win32com.client.GetActiveObject("MSProject.Application")
-    except Exception:
+        return win32com.client.GetActiveObject("MSProject.Application")
+    except Exception as e:
+        logger.debug("GetActiveObject failed (%s): %s", type(e).__name__, e)
+        return None
+
+
+def _launch_app():
+    """
+    Launch MS Project. With the WP-1 session available, the session launches and owns
+    the instance, so it follows the session's headless setting (default Visible=False).
+    """
+    if get_session is not None:
+        app = get_session().attach().app
+    else:
+        import win32com.client
+        app = win32com.client.Dispatch("MSProject.Application")
+        app.Visible = True
+    app.DisplayAlerts = False
+    return app
+
+
+def get_app(require_project=True):
+    """Get running MS Project instance. Raises if not running."""
+    app = _find_app()
+    if app is None:
         raise RuntimeError(
             "MS Project is not running. Open MS Project and load a file first."
         )
@@ -191,13 +250,9 @@ def open_project(file_path: str) -> str:
     Open a Microsoft Project file (.mpp or .xml).
     MS Project must already be running (it is launched automatically if not).
     """
-    import win32com.client
-    try:
-        app = win32com.client.GetActiveObject("MSProject.Application")
-    except Exception:
-        app = win32com.client.Dispatch("MSProject.Application")
-        app.Visible = True
-        app.DisplayAlerts = False
+    app = _find_app()
+    if app is None:
+        app = _launch_app()
 
     app.FileOpen(file_path)
     proj = app.ActiveProject
@@ -220,13 +275,9 @@ def new_project(title: str = "New Project", start: str = "") -> str:
         title: Project title (default "New Project").
         start: Project start date as YYYY-MM-DD (optional).
     """
-    import win32com.client
-    try:
-        app = win32com.client.GetActiveObject("MSProject.Application")
-    except Exception:
-        app = win32com.client.Dispatch("MSProject.Application")
-        app.Visible = True
-        app.DisplayAlerts = False
+    app = _find_app()
+    if app is None:
+        app = _launch_app()
 
     app.FileNew()
     proj = app.ActiveProject
@@ -4023,27 +4074,27 @@ def list_calendar_exceptions(calendar_name: str = "") -> str:
 def health_check() -> str:
     """
     Lightweight connectivity test. Returns MS Project version, whether a project
-    is open, and basic project info if available.
+    is open, and basic project info if available. Lists any hardening (WP) tool
+    modules that failed to load under "hardening_tool_errors".
     """
-    import win32com.client
-    try:
-        app = win32com.client.GetActiveObject("MSProject.Application")
-    except Exception:
-        return json.dumps({"status": "disconnected", "error": "MS Project is not running."})
-
-    result = {
-        "status":  "connected",
-        "version": str(app.Version),
-    }
-
-    if app.Projects.Count > 0:
-        proj = app.ActiveProject
-        result["project_open"] = True
-        result["project_name"] = proj.Name
-        result["task_count"]   = proj.Tasks.Count
+    app = _find_app()
+    if app is None:
+        result = {"status": "disconnected", "error": "MS Project is not running."}
     else:
-        result["project_open"] = False
+        result = {
+            "status":  "connected",
+            "version": str(app.Version),
+        }
+        if app.Projects.Count > 0:
+            proj = app.ActiveProject
+            result["project_open"] = True
+            result["project_name"] = proj.Name
+            result["task_count"]   = proj.Tasks.Count
+        else:
+            result["project_open"] = False
 
+    if WP_LOAD_ERRORS:
+        result["hardening_tool_errors"] = WP_LOAD_ERRORS
     return json.dumps(result, indent=2)
 
 
@@ -5180,6 +5231,49 @@ def what_if_delay(
         "slack_consumed":        slack_consumed,
         "downstream_tasks":      downstream_affected,
     }, indent=2)
+
+
+# ---------------------------------------------------------------------------
+# Hardening tools (WP-1 to WP-6)
+# ---------------------------------------------------------------------------
+
+# WP-3 (src/verify_write.py) is a library for mutating tools, not a tool module.
+WP_TOOL_MODULES = (
+    ("src.session_tools", "register_session_tools"),    # WP-1
+    ("src.identity_tools", "register_identity_tools"),  # WP-2
+    ("src.calc_tools", "register_calc_tools"),          # WP-4
+    ("src.store_tools", "register_store_tools"),        # WP-5
+    ("src.ui_tools", "register_ui_tools"),              # WP-6
+)
+
+
+def _session_active_project():
+    """TaskStore's project source: the active project of the WP-1 session."""
+    if get_session is None:
+        raise RuntimeError(
+            "WP-1 session is unavailable. See hardening_tool_errors in health_check."
+        )
+    return get_session().app.ActiveProject
+
+
+def _register_wp_tools():
+    """
+    Register each hardening module's tools next to the legacy tools. A module that
+    fails to load is logged and recorded in WP_LOAD_ERRORS; the others still load.
+    """
+    for module_name, register_name in WP_TOOL_MODULES:
+        try:
+            getattr(importlib.import_module(module_name), register_name)(mcp)
+        except Exception as e:
+            _record_wp_error(module_name, e)
+    try:
+        from src.task_store import init_store
+        init_store(_session_active_project)
+    except Exception as e:
+        _record_wp_error("src.task_store", e)
+
+
+_register_wp_tools()
 
 
 # ---------------------------------------------------------------------------
