@@ -1,0 +1,88 @@
+# WP-8: Integration test workflow
+#
+# IMPORTANT: This workflow requires a SELF-HOSTED Windows runner with
+# MS Project 2016+ installed and licensed. GitHub-hosted runners do NOT
+# have MS Project.
+#
+# Setup instructions:
+# 1. Install a self-hosted runner on a Windows machine with Project
+# 2. Label the runner: "windows-project"
+# 3. Ensure Python 3.10+ and pip are on PATH
+# 4. MS Project must be activated (not trial/expired)
+#
+# This workflow runs on push to dev and wp-8/* branches, and on PRs.
+# The unit tests (mock-based) run on any platform; integration tests
+# only run on the self-hosted Windows runner.
+
+name: Tests
+
+on:
+  push:
+    branches: [dev, "wp-8/*"]
+  pull_request:
+    branches: [dev, main]
+
+jobs:
+  unit-tests:
+    name: Unit Tests (mock-based)
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pytest mcp python-dateutil psutil
+
+      - name: Run unit tests
+        run: |
+          pytest tests/ -v --ignore=tests/integration/ -x
+
+  integration-tests:
+    name: Integration Tests (live MS Project)
+    # Self-hosted Windows runner with MS Project installed
+    runs-on: [self-hosted, windows-project]
+    needs: unit-tests
+    # Runs on push and PRs — PRs exercise the full COM path pre-merge
+    if: always()
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generate test fixtures
+        run: |
+          python tests/fixtures/generate_fixtures.py
+
+      - name: Run integration tests
+        run: |
+          pytest tests/integration/ -v -x --tb=long
+
+      - name: Kill orphaned WINPROJ.EXE
+        if: always()
+        run: |
+          taskkill /IM WINPROJ.EXE /F 2>$null; exit 0
+        shell: pwsh
+
+      - name: Run all tests
+        run: |
+          pytest tests/ -v --tb=long

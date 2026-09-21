@@ -10,3 +10,4 @@ build/
 venv/
 .venv/
 *.log
+tests/fixtures/generated/
