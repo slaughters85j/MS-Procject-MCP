@@ -1,304 +1,174 @@
 # MS Project MCP Server
 
-Control Microsoft Project via COM automation through the Model Context Protocol (MCP).
+An MCP server for controlling Microsoft Project through COM automation. Python + pywin32 on Windows, with session-managed COM lifecycle, verify-after-write guarantees, and bulk operations with dry-run support.
 
-## Prerequisites
+Built on [FastMCP](https://github.com/jlowin/fastmcp). 100+ tools covering tasks, resources, calendars, baselines, earned value, scheduling analysis, and multi-project workflows.
+
+## Requirements
 
 - **Windows** with Microsoft Project installed (tested on MS Project 16.0)
 - **Python 3.10+**
-- Install all dependencies: `pip install -r requirements.txt`
-- **mcp** 1.x: `pip install "mcp<2"` (mcp 2.x removed `mcp.server.fastmcp`, which this server uses)
-- **pywin32** for COM: `pip install pywin32`
-- **python-dateutil** (optional, for `add_recurring_task`): `pip install python-dateutil`
+- MS Project must be running (or the server will launch it)
+
+## Installation
+
+```bash
+# Clone and install in editable mode
+git clone https://github.com/slaughters85j/MS-Procject-MCP.git
+cd MS-Procject-MCP
+pip install -e .
+
+# With dev dependencies (pytest, coverage)
+pip install -e ".[dev]"
+```
+
+This gives you the `msproject-mcp` console script, so you don't need absolute paths in your MCP client config.
 
 ## Quick Start
 
-1. **Start MS Project** and open a project file (or the server will create one).
-
-2. **Register** in your `claude_desktop_config.json`:
+Register the server in your `claude_desktop_config.json`:
 
 ```json
 {
   "mcpServers": {
     "msproject": {
-      "command": "python",
-      "args": ["/path/to/msproject/server.py"]
+      "command": "msproject-mcp"
     }
   }
 }
 ```
 
-3. **Run standalone** (for testing):
+Or run directly:
 
 ```bash
+# Via console script
+msproject-mcp
+
+# Or via Python
 python server.py
 ```
 
-## Tool Inventory (99 tools)
-
-### Project Management (7)
-
-| Tool | Description |
-|------|-------------|
-| `open_project` | Open an existing .mpp file |
-| `new_project` | Create a new blank project |
-| `get_project_info` | Read project metadata and summary stats |
-| `set_project_properties` | Update title, manager, start date, etc. |
-| `save_project` | Save current project |
-| `save_project_as` | Save as .mpp or .xml |
-| `close_project` | Close the active project |
-
-### Task Queries (9)
-
-| Tool | Description |
-|------|-------------|
-| `get_tasks` | List tasks with optional filters |
-| `get_task` | Get a single task by UniqueID |
-| `get_critical_path` | Return critical-path tasks |
-| `get_tasks_by_rag` | Filter tasks by RAG status (Text1) |
-| `get_overdue_tasks` | Incomplete tasks past their finish date |
-| `get_tasks_by_resource` | Tasks assigned to a named resource |
-| `search_tasks` | Full-text search across task names |
-| `get_progress_summary` | Dashboard: progress, RAG counts, overdue |
-| `get_wbs_structure` | Hierarchical WBS tree |
-
-### Task Mutations (12)
-
-| Tool | Description |
-|------|-------------|
-| `update_task` | Update any task field (incl. priority, task type) |
-| `bulk_update_rag` | Mass RAG status update |
-| `bulk_update_tasks` | Mass field updates across tasks |
-| `add_task` | Add a single task |
-| `bulk_add_tasks` | Add many tasks at once (JSON array) |
-| `add_recurring_task` | Create recurring task occurrences (daily/weekly/monthly) |
-| `delete_task` | Remove a task |
-| `set_task_mode` | Toggle auto/manual scheduling |
-| `bulk_set_task_mode` | Mass scheduling mode update |
-| `set_constraint` | Set scheduling constraint (ASAP/ALAP/SNET/etc.) |
-| `clear_estimated_flags` | Clear estimated flag on all tasks |
-| `indent_task` | Indent or outdent a task |
-
-### Dependencies (4)
-
-| Tool | Description |
-|------|-------------|
-| `add_predecessor` | Create FS/SS/FF/SF link with optional lag |
-| `bulk_add_predecessors` | Mass predecessor creation |
-| `remove_predecessor` | Delete a dependency link |
-| `get_task_dependencies` | Show predecessors and successors |
-
-### Resources (7)
-
-| Tool | Description |
-|------|-------------|
-| `get_resources` | List all resources in the pool |
-| `add_resource` | Add a work/material/cost resource |
-| `assign_resource` | Assign a resource to a task |
-| `update_resource` | Modify resource properties |
-| `delete_resource` | Remove a resource (clears assignments) |
-| `set_resource_calendar` | Assign a specific calendar to a resource |
-| `get_resource_availability` | Allocation vs capacity per period |
-
-### Resource Assignments (3)
-
-| Tool | Description |
-|------|-------------|
-| `bulk_assign_resources` | Mass resource assignment |
-| `remove_resource_assignment` | Unassign a resource from a task |
-| `get_resource_workload` | Workload and conflict detection for a resource |
-
-### Resource Rate Tables (2)
-
-| Tool | Description |
-|------|-------------|
-| `get_resource_rate_tables` | Read cost rate tables A-E for a resource |
-| `set_resource_rate_table` | Set or add rate entries in a cost rate table |
-
-### Custom Fields (3)
-
-| Tool | Description |
-|------|-------------|
-| `rename_custom_fields` | Rename Text1-Text30, Number1-Number20, etc. |
-| `update_custom_fields` | Set custom field values on a task |
-| `get_custom_field_values` | Read all values of a custom field |
-
-### Import / Export (6)
-
-| Tool | Description |
-|------|-------------|
-| `import_xml` | Import from MS Project XML |
-| `export_xml` | Export to MS Project XML |
-| `export_csv` | Export tasks to CSV with column selection |
-| `snapshot_to_json` | Full project snapshot as JSON |
-| `snapshot_diff` | Compare two JSON snapshots — additions, deletions, changes |
-| `insert_subproject` | Insert a subproject file |
-
-### Calendars (7)
-
-| Tool | Description |
-|------|-------------|
-| `get_calendars` | List all project calendars |
-| `create_calendar` | Create a new calendar (optionally copy from existing) |
-| `delete_calendar` | Remove a base calendar |
-| `set_calendar_exception` | Add exception dates (holidays) to a calendar |
-| `delete_calendar_exception` | Remove a specific exception from a calendar |
-| `list_calendar_exceptions` | List all exceptions on a calendar |
-| `set_project_calendar` | Switch the project base calendar |
-
-### Calendar Working Hours (1)
-
-| Tool | Description |
-|------|-------------|
-| `set_working_hours` | Modify working hours for a specific day of the week |
-
-### Scheduling & Analysis (12)
-
-| Tool | Description |
-|------|-------------|
-| `get_schedule_analysis` | Critical path length, float analysis |
-| `validate_schedule` | Find scheduling issues (missing links, etc.) |
-| `calculate_project` | Recalculate the schedule after manual changes |
-| `get_milestone_report` | Upcoming and overdue milestones |
-| `level_resources` | Run MS Project resource leveling |
-| `find_available_slack` | Tasks with free slack above threshold |
-| `get_constraints` | Read non-default constraints on all tasks |
-| `set_task_calendar` | Assign a calendar to a specific task |
-| `set_task_hyperlink` | Set a hyperlink on a task |
-| `get_critical_path_sequence` | Ordered critical path chain from start to finish with driving links |
-| `get_critical_tasks_for_period` | Critical tasks and milestones within a date range (e.g. Q2) |
-| `what_if_delay` | Simulate delaying a task — shows project impact, newly critical tasks, slack loss |
-
-### Status Date & Progress Updates (2)
-
-| Tool | Description |
-|------|-------------|
-| `update_project` | Mark all tasks complete through a date (weekly PMO ritual) |
-| `reschedule_incomplete_work` | Move remaining work to start after a given date |
-
-### Timephased Data (1)
-
-| Tool | Description |
-|------|-------------|
-| `get_timephased_data` | Period-by-period work/cost data (for S-curves, cash flow) |
-
-### Baselines & Earned Value (4)
-
-| Tool | Description |
-|------|-------------|
-| `save_baseline` | Save baseline (0-10) |
-| `clear_baseline` | Clear a saved baseline |
-| `compare_baselines` | Compare two baselines or baseline vs current |
-| `get_earned_value` | BCWS, BCWP, ACWP, SPI, CPI per task |
-
-### Variance & Reporting (1)
-
-| Tool | Description |
-|------|-------------|
-| `get_variance_report` | Schedule + cost variance per task vs a baseline |
-
-### Cost & Work (2)
-
-| Tool | Description |
-|------|-------------|
-| `get_cost_summary` | Budget vs actual cost breakdown |
-| `get_actual_work` | Actual vs remaining work hours per task |
-
-### Progress Tracking (2)
-
-| Tool | Description |
-|------|-------------|
-| `get_progress_by_wbs` | Completion % rolled up by WBS level |
-| `get_dependency_chain` | Walk predecessor/successor chains |
-
-### Advanced Operations (8)
-
-| Tool | Description |
-|------|-------------|
-| `set_deadline` | Set deadline indicator on a task |
-| `bulk_set_deadlines` | Mass deadline assignment |
-| `set_task_active` | Activate/inactivate a task |
-| `dry_run_bulk_update` | Preview bulk changes without applying |
-| `move_task` | Reorder a task after another |
-| `copy_task_structure` | Duplicate a task and its subtree |
-| `cross_project_link` | Create inter-project dependency |
-| `undo_last` | Undo recent operations (up to 10) |
-
-### Multi-Project (3)
-
-| Tool | Description |
-|------|-------------|
-| `list_projects` | List all open projects |
-| `switch_project` | Switch active project by name or index |
-| `apply_filter` | Apply a built-in or custom filter |
-
-### Filtering & Grouping (2)
-
-| Tool | Description |
-|------|-------------|
-| `filter_tasks` | Advanced multi-field filtering |
-| `group_tasks_by` | Group tasks by any field with aggregation |
-
-### Connectivity (1)
-
-| Tool | Description |
-|------|-------------|
-| `health_check` | Lightweight COM connectivity test — version, project status |
-
-## Enriched Task Data
-
-Every task query (`get_task`, `get_tasks`, etc.) returns a rich dict with 35+ fields including:
-
-| Field | Description |
-|-------|-------------|
-| `actual_start` / `actual_finish` | When work actually began/ended |
-| `remaining_duration_days` | How much work is left |
-| `total_slack_days` / `free_slack_days` | Schedule flexibility |
-| `deadline` | Soft deadline indicator |
-| `priority` | Leveling priority (0–1000) |
-| `constraint_type` / `constraint_date` | Scheduling constraint |
-| `manual` | Auto vs manual scheduling |
-| `type` | FixedUnits / FixedDuration / FixedWork |
-| `hyperlink` / `hyperlink_text` | Task hyperlink |
-
-## Known Limitations
-
-- **COM proxy staleness**: When multiple projects are open, switching projects invalidates existing COM references. Always call `switch_project` before operating on a different file.
-- **Undo stack**: `undo_last` supports up to 10 consecutive undos. MS Project's COM undo is less reliable than the UI's.
-- **File locking**: Only one process can hold the COM connection. Don't open MS Project's GUI dialogs while the server is active.
-- **Timezone-aware dates**: COM may return timezone-aware datetimes. The server normalizes these via `_to_naive()` for safe comparisons.
-- **Recurring tasks**: MS Project's `RecurringTaskInsert` is a dialog-only COM method. The `add_recurring_task` tool simulates recurrence by creating individual occurrences under a summary task. Requires `python-dateutil`.
-- **Timephased data**: `get_timephased_data` can be slow on large date ranges. Keep queries to reasonable periods (weeks/months, not years).
-
-## Tests
-
-```bash
-# Run all phases
-python tests/test_new_tools.py  # 11 tests (core CRUD)
-python tests/test_phase2.py     # 10 tests (resources, baselines, WBS)
-python tests/test_phase3.py     # 15 tests (custom fields, calendars, scheduling)
-python tests/test_phase4.py     # 23 tests (advanced ops, multi-project, filtering)
-python tests/test_phase5.py     # 11 tests (bug fixes, cost/work tracking)
-python tests/test_phase6.py     # 75 tests (timephased data, calendar mgmt, variance)
-python tests/test_phase7.py     # 57 tests (critical path intelligence, what-if)
-```
-
-**202 tests total** across 7 test suites. All tests require MS Project to be running (they create and close temporary projects).
+The server communicates over stdio. Start MS Project and open a `.mpp` file before issuing tool calls (or use `open_project` / `new_project` to do it from the client).
 
 ## Architecture
 
-Single-file server (`server.py`, ~5,200 lines) using the FastMCP framework. All COM calls go through `get_app()` / `get_proj()` helpers. Dates are normalized with `_to_naive()` and formatted with `_fmt_date()`.
+The server is a single entry point (`server.py`, ~5,500 lines of legacy tools) backed by a `src/` package of hardening modules built in work packages WP-1 through WP-8. The hardening modules are optional: if any fail to load (e.g., running on a machine without pywin32), the legacy tools keep working and `health_check` reports what's missing.
 
-### Development Phases
+### Hardening Work Packages
 
-| Phase | Tools | Focus |
-|-------|-------|-------|
-| 1–2 | 25 | Core CRUD, dependencies, resources |
-| 3 | 44 | Custom fields, calendars, scheduling analysis |
-| 4 | 65 | Advanced operations, multi-project, filtering |
-| 5 | 79 | Bug fixes, cost/work tracking |
-| 6 | 96 | Timephased data, calendar management, resource availability, variance reporting |
-| 7 | 99 | Critical path intelligence: ordered sequence, period filtering, what-if analysis |
+| WP | Module | Purpose |
+|----|--------|---------|
+| 1 | `project_session.py` | COM lifecycle singleton. Attach/detach ownership, headless mode, graceful shutdown. Refuses to start if another COM client is already bound. |
+| 2 | `project_identity.py` | Canonical file paths and SHA-256 project hash. All mutating tools validate the project identity before writing, so `switch_project` never silently corrupts the wrong `.mpp`. |
+| 3 | `verify_write.py` | Re-reads every field after mutation. Returns `{requested, actual, drifted}` so the caller can tell "write succeeded" from "write succeeded but Project recalculated the value." |
+| 4 | `calc_policy.py` | `deferred_calc` context manager. Suppresses automatic recalculation during batch writes so 40 field updates don't trigger 40 full recalcs on a 10k-task file. |
+| 5 | `task_store.py` | UniqueID-based task resolution on every access. Detects stale COM proxies (from save, switch, or insert) and re-resolves transparently. |
+| 6 | `ui_lock.py` | Manages `ScreenUpdating` and `StatusBar` during tool calls. Three modes: invisible (headless), locked (visible but frozen), and open. |
+| 7 | `bulk_ops.py` | Dry-run/apply pattern for bulk operations. Idempotent (skips items already matching), per-item verification via WP-3, per-item error reporting. |
+| 8 | `tests/integration/` | Fixture generator, pytest conftest with Project session fixture, CI workflow for Windows runners. |
+
+### Safety Features
+
+**Path confinement.** Set `MSPROJECT_SAFE_ROOT` to restrict all file operations (`open_project`, `save_project_as`, `export_csv`, etc.) to a directory tree. Unset = all file ops refused (fail-closed).
+
+**Dry-run mode.** Set `MSPROJECT_DRY_RUN=1` to prevent all mutations server-wide. Saves are skipped, destructive deletes short-circuit, and responses include `"status": "dry-run"`. This sits alongside WP-7's per-operation dry-run, acting as a deployment-level safety net.
+
+**stderr-only logging.** All diagnostic output goes to stderr. No `print()` calls leak to stdout, which would corrupt the MCP stdio transport.
+
+**ToolAnnotations.** Every tool carries MCP `ToolAnnotations` metadata (`readOnlyHint`, `destructiveHint`, `idempotentHint`) so clients can make safety decisions before calling.
+
+### Production Features
+
+**COM retry with geometric backoff.** Transient `RPC_E_CALL_REJECTED` and `RPC_E_SERVERCALL_RETRYLATER` errors (from recalculation or modal dialogs) are retried with 0.4s/0.8s/1.6s backoff instead of failing immediately.
+
+**Response size management.** Three mechanisms keep responses usable for LLM context windows:
+
+- *Pagination:* Read tools default to 200 items per page with `offset`/`limit` parameters. Use `limit=-1` for everything at once.
+- *Field stripping:* Empty, null, false, and zero-valued fields are omitted from task/resource dicts. Identity fields (`unique_id`, `name`) and measurement zeros (`percent_complete`, `duration_days`) are always kept.
+- *Adaptive formatting:* Responses over 4 KB use compact JSON; smaller responses stay indented for readability.
+
+**Schema size reduction.** Pydantic's auto-generated `"title"` fields are stripped from all tool schemas at import time, saving ~2,300 tokens of context per session.
+
+**Server instructions and tool guide.** The server registers `instructions` with FastMCP so LLM clients receive batching rules and a single-to-bulk cross-reference map at init. The `get_tool_guide()` meta-tool returns the full categorized tool inventory on demand.
+
+**MCP Registry manifest.** A `server.json` file is included for discoverability in the MCP Registry ecosystem.
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MSPROJECT_SAFE_ROOT` | *(unset = all file ops refused)* | Directory tree where file operations are allowed. Paths outside this root are rejected. |
+| `MSPROJECT_DRY_RUN` | `0` | Set to `1` to prevent all mutations server-wide. Saves are skipped and destructive operations return a dry-run preview. |
+
+## Tool Inventory
+
+The server exposes 100+ tools organized by domain. Use `get_tool_guide()` for the full categorized list with descriptions. Here's the summary:
+
+| Category | Tools | Examples |
+|----------|-------|---------|
+| Project Management | 7 | `open_project`, `save_project`, `get_project_info` |
+| Task Queries | 9 | `get_tasks`, `get_critical_path`, `search_tasks`, `get_wbs_structure` |
+| Task Mutations | 12 | `update_task`, `add_task`, `bulk_add_tasks`, `add_recurring_task` |
+| Dependencies | 4 | `add_predecessor`, `bulk_add_predecessors`, `get_task_dependencies` |
+| Resources | 7 | `get_resources`, `add_resource`, `assign_resource` |
+| Resource Assignments | 3 | `bulk_assign_resources`, `get_resource_workload` |
+| Custom Fields | 3 | `rename_custom_fields`, `update_custom_fields` |
+| Import/Export | 6 | `export_csv`, `snapshot_to_json`, `snapshot_diff` |
+| Calendars | 8 | `get_calendars`, `create_calendar`, `set_calendar_exception` |
+| Scheduling & Analysis | 12 | `validate_schedule`, `what_if_delay`, `get_critical_path_sequence` |
+| Baselines & Earned Value | 4 | `save_baseline`, `compare_baselines`, `get_earned_value` |
+| Cost & Work | 4 | `get_cost_summary`, `get_variance_report` |
+| Progress Tracking | 4 | `update_project`, `reschedule_incomplete_work` |
+| Advanced Operations | 8 | `dry_run_bulk_update`, `copy_task_structure`, `cross_project_link` |
+| Multi-Project | 3 | `list_projects`, `switch_project` |
+| Filtering & Grouping | 2 | `filter_tasks`, `group_tasks_by` |
+| Session & Identity (WP) | ~10 | `session_info`, `health_check`, `calculate_project` |
+| Connectivity | 1 | `health_check` |
+
+Every task query returns a rich dict with 35+ fields including actual start/finish, remaining duration, total/free slack, deadline, priority, constraint type, scheduling mode, and hyperlinks. See the tool schemas or `get_tool_guide()` output for full field documentation.
+
+## Development
+
+### Running Tests
+
+```bash
+# Install dev dependencies
+pip install -e ".[dev]"
+
+# Unit tests (no MS Project required)
+pytest tests/ -v
+
+# Integration tests (requires MS Project running on Windows)
+pytest tests/integration/ -v
+```
+
+The test suite includes 200+ tests across 7 phases (core CRUD, resources, calendars, scheduling, advanced ops, timephased data, critical path intelligence) plus WP-specific unit tests and an integration harness (WP-8) with fixture generation.
+
+### Branch Structure
+
+- `main` -- stable releases
+- `dev` -- active development, hardening work packages and fork integrations
+
+### CI
+
+The GitHub Actions workflow runs on Windows runners with MS Project installed. See `docs/ci-setup.md` for runner requirements and Project licensing notes.
+
+## Known Limitations
+
+- **COM proxy staleness:** Switching projects invalidates existing COM references. The WP-5 TaskStore handles this automatically, but legacy tools may need a `switch_project` call first.
+- **Undo stack:** `undo_last` supports up to 10 consecutive undos. COM undo is less reliable than the Project GUI's.
+- **File locking:** Only one process can hold the COM connection. Don't open Project's GUI dialogs while the server is active (or use headless mode via WP-1).
+- **Recurring tasks:** MS Project's `RecurringTaskInsert` is dialog-only in COM. The `add_recurring_task` tool simulates recurrence by creating individual occurrences under a summary task.
+- **Timephased data:** `get_timephased_data` can be slow on large date ranges. Keep queries to weeks or months, not years.
+
+## Credits
+
+Forked from [elsahafy/MS-Procject-MCP](https://github.com/elsahafy/MS-Procject-MCP). The hardening architecture (WP-1 through WP-8) was built on top of that foundation. Several production features were adapted from two other forks:
+
+- [devGPL/MS-Procject-MCP](https://github.com/devGPL/MS-Procject-MCP): pyproject.toml packaging, COM retry with backoff, response size management (pagination, field stripping, adaptive formatting), schema size reduction, MCP Registry manifest, improved error diagnostics.
+- [4nswer/Project_MCP](https://github.com/4nswer/Project_MCP): `MSPROJECT_SAFE_ROOT` path confinement, `MSPROJECT_DRY_RUN` mode, ToolAnnotations on all tools, server instructions and tool guide.
+
+See `docs/fork-comparison.md` for the full analysis and `docs/work-packages.md` for the hardening design.
 
 ## Contributing
 
@@ -306,4 +176,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, conventions, and h
 
 ## License
 
-This project is licensed under the MIT License — see [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).
