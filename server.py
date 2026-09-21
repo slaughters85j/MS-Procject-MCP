@@ -17,6 +17,29 @@ from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("MS Project")
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Sprint-1 safety guards
+# ---------------------------------------------------------------------------
+try:
+    from src.safe_path import validate_safe_path, is_confined, get_safe_root
+except Exception as _e:
+    logger.error("safe_path module failed to load: %s", _e)
+    def validate_safe_path(p):  # noqa: E302
+        return p
+    def is_confined():  # noqa: E302
+        return False
+    def get_safe_root():  # noqa: E302
+        return None
+
+try:
+    from src.dry_run import is_dry_run, dry_run_response
+except Exception as _e:
+    logger.error("dry_run module failed to load: %s", _e)
+    def is_dry_run():  # noqa: E302
+        return False
+    def dry_run_response(tool, params):  # noqa: E302
+        return "{}"
+
 # The hardening modules (WP-1 to WP-6) live in src/ next to this file. The server
 # still runs without them: each failure is logged, listed by health_check, and the
 # legacy tools keep working.
@@ -250,6 +273,7 @@ def open_project(file_path: str) -> str:
     Open a Microsoft Project file (.mpp or .xml).
     MS Project must already be running (it is launched automatically if not).
     """
+    file_path = validate_safe_path(file_path)
     app = _find_app()
     if app is None:
         app = _launch_app()
@@ -350,6 +374,8 @@ def set_project_properties(properties_json: str) -> str:
             start (YYYY-MM-DD).
             Example: '{"title": "EXPO 2030", "manager": "John", "company": "ERC"}'
     """
+    if is_dry_run():
+        return dry_run_response("set_project_properties", {"properties_json": properties_json})
     props = json.loads(properties_json)
     app   = get_app()
     proj  = get_proj(app)
@@ -377,6 +403,8 @@ def set_project_properties(properties_json: str) -> str:
 @mcp.tool()
 def save_project() -> str:
     """Save the active project (in place)."""
+    if is_dry_run():
+        return dry_run_response("save_project", {})
     app = get_app()
     app.FileSave()
     return "Project saved."
@@ -388,6 +416,9 @@ def save_project_as(file_path: str, format: str = "mpp") -> str:
     Save the active project to a new path.
     format: 'mpp' (default), 'xml', 'csv'
     """
+    file_path = validate_safe_path(file_path)
+    if is_dry_run():
+        return dry_run_response("save_project_as", {"file_path": file_path, "format": format})
     fmt_map = {"mpp": 0, "xml": 22, "csv": 23}
     fmt_id  = fmt_map.get(format.lower(), 0)
     app     = get_app()
@@ -398,6 +429,8 @@ def save_project_as(file_path: str, format: str = "mpp") -> str:
 @mcp.tool()
 def close_project(save: bool = False) -> str:
     """Close the active project. Set save=True to save before closing."""
+    if is_dry_run():
+        return dry_run_response("close_project", {"save": save})
     app = get_app()
     app.FileClose(Save=1 if save else 0)
     return "Project closed."
@@ -853,6 +886,8 @@ def bulk_add_tasks(tasks_json: str) -> str:
 @mcp.tool()
 def delete_task(unique_id: int) -> str:
     """Delete a task by its UniqueID. This cannot be undone after save."""
+    if is_dry_run():
+        return dry_run_response("delete_task", {"unique_id": unique_id})
     app  = get_app()
     proj = get_proj(app)
 
@@ -1385,12 +1420,14 @@ def import_xml(file_path: str) -> str:
     Open an MS Project XML file (e.g. the consolidated EXPO 2030 roadmap).
     MS Project must be running.
     """
+    file_path = validate_safe_path(file_path)  # defense-in-depth; open_project also validates
     return open_project(file_path)
 
 
 @mcp.tool()
 def export_xml(output_path: str) -> str:
     """Export the active project to MS Project XML format."""
+    output_path = validate_safe_path(output_path)  # defense-in-depth; save_project_as also validates
     return save_project_as(output_path, format="xml")
 
 
@@ -1673,6 +1710,8 @@ def save_baseline(baseline_number: int = 0, all_tasks: bool = True) -> str:
     """
     if baseline_number < 0 or baseline_number > 10:
         return json.dumps({"error": "baseline_number must be 0-10."})
+    if is_dry_run():
+        return dry_run_response("save_baseline", {"baseline_number": baseline_number, "all_tasks": all_tasks})
 
     app  = get_app()
     proj = get_proj(app)
@@ -1701,6 +1740,8 @@ def clear_baseline(baseline_number: int = 0, all_tasks: bool = True) -> str:
     """
     if baseline_number < 0 or baseline_number > 10:
         return json.dumps({"error": "baseline_number must be 0-10."})
+    if is_dry_run():
+        return dry_run_response("clear_baseline", {"baseline_number": baseline_number, "all_tasks": all_tasks})
 
     app = get_app()
     app.BaselineClear(All=all_tasks, From=baseline_number)
@@ -2667,6 +2708,8 @@ def level_resources() -> str:
     Run MS Project's built-in resource leveling algorithm.
     WARNING: This may shift task dates. Save a baseline first if tracking variance.
     """
+    if is_dry_run():
+        return dry_run_response("level_resources", {})
     app  = get_app()
     proj = get_proj(app)
 
@@ -3402,6 +3445,9 @@ def export_csv(output_path: str, columns_json: str = "", filters_json: str = "")
                       Available: any key from task_to_dict output.
         filters_json: JSON object with filter criteria (same format as filter_tasks).
     """
+    output_path = validate_safe_path(output_path)
+    if is_dry_run():
+        return dry_run_response("export_csv", {"output_path": output_path})
     import csv
 
     app  = get_app()
@@ -3685,6 +3731,8 @@ def undo_last(count: int = 1) -> str:
     Args:
         count: Number of undo steps (default 1, max 10).
     """
+    if is_dry_run():
+        return dry_run_response("undo_last", {"count": count})
     if count < 1:
         count = 1
     if count > 10:
@@ -3761,6 +3809,9 @@ def insert_subproject(file_path: str, after_unique_id: int = 0) -> str:
         file_path:       Full path to the .mpp file to insert (required).
         after_unique_id: Insert after this task's UniqueID (0 = insert at end).
     """
+    file_path = validate_safe_path(file_path)
+    if is_dry_run():
+        return dry_run_response("insert_subproject", {"file_path": file_path, "after_unique_id": after_unique_id})
     import os
     if not os.path.exists(file_path):
         return json.dumps({"error": f"File not found: {file_path}"})
@@ -3830,6 +3881,9 @@ def snapshot_to_json(output_path: str, include_resources: bool = True) -> str:
         output_path:       Full path for the output JSON file (required).
         include_resources: Include resource data (default True).
     """
+    output_path = validate_safe_path(output_path)
+    if is_dry_run():
+        return dry_run_response("snapshot_to_json", {"output_path": output_path, "include_resources": include_resources})
     app  = get_app()
     proj = get_proj(app)
 
@@ -3924,6 +3978,8 @@ def delete_resource(resource_name: str) -> str:
     Delete a resource from the project pool (case-insensitive match).
     All task assignments referencing this resource are cleared first.
     """
+    if is_dry_run():
+        return dry_run_response("delete_resource", {"resource_name": resource_name})
     app  = get_app()
     proj = get_proj(app)
 
@@ -4095,6 +4151,11 @@ def health_check() -> str:
 
     if WP_LOAD_ERRORS:
         result["hardening_tool_errors"] = WP_LOAD_ERRORS
+
+    # Sprint-1 safety status
+    result["safe_root"] = get_safe_root()
+    result["dry_run"] = is_dry_run()
+
     return json.dumps(result, indent=2)
 
 
@@ -4108,6 +4169,8 @@ def update_project(complete_through: str, set_0_or_100: bool = False) -> str:
         complete_through: Date as YYYY-MM-DD — tasks scheduled through this date are updated.
         set_0_or_100:     If True, tasks are set to 0% or 100% only (no partial). Default False.
     """
+    if is_dry_run():
+        return dry_run_response("update_project", {"complete_through": complete_through, "set_0_or_100": set_0_or_100})
     app  = get_app()
     proj = get_proj(app)
     dt   = _parse_date(complete_through)
@@ -4146,6 +4209,8 @@ def reschedule_incomplete_work(reschedule_from: str = "") -> str:
     Args:
         reschedule_from: Date as YYYY-MM-DD. Empty = use project status date.
     """
+    if is_dry_run():
+        return dry_run_response("reschedule_incomplete_work", {"reschedule_from": reschedule_from})
     app  = get_app()
     proj = get_proj(app)
 
@@ -4184,6 +4249,8 @@ def delete_calendar(calendar_name: str) -> str:
     Args:
         calendar_name: Name of the calendar to delete.
     """
+    if is_dry_run():
+        return dry_run_response("delete_calendar", {"calendar_name": calendar_name})
     app  = get_app()
     proj = get_proj(app)
 
@@ -4212,6 +4279,8 @@ def delete_calendar_exception(calendar_name: str, exception_name: str) -> str:
         calendar_name:  Name of the base calendar.
         exception_name: Name of the exception to remove.
     """
+    if is_dry_run():
+        return dry_run_response("delete_calendar_exception", {"calendar_name": calendar_name, "exception_name": exception_name})
     app  = get_app()
     proj = get_proj(app)
 
@@ -4550,6 +4619,8 @@ def snapshot_diff(path_a: str, path_b: str) -> str:
     """
     import os
 
+    path_a = validate_safe_path(path_a)
+    path_b = validate_safe_path(path_b)
     for p in (path_a, path_b):
         if not os.path.exists(p):
             return json.dumps({"error": f"File not found: {p}"})
@@ -5281,10 +5352,15 @@ _register_wp_tools()
 # Entry point
 # ---------------------------------------------------------------------------
 
-if __name__ == "__main__":
-    print("Starting MS Project MCP Server...")
-    print("MS Project must be running with a file open before using tools.")
+def main():
+    """Entry point for console_scripts and direct execution."""
+    print("Starting MS Project MCP Server...", file=sys.stderr)
+    print("MS Project must be running with a file open before using tools.", file=sys.stderr)
     mcp.run()
+
+
+if __name__ == "__main__":
+    main()
 
 
 # ---------------------------------------------------------------------------

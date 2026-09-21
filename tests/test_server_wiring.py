@@ -32,6 +32,7 @@ WP_TOOLS = {
     "get_calculation_mode", "set_calculation_mode", "calculate_now",     # WP-4
     "resolve_task", "resolve_resource", "invalidate_store", "store_stats",  # WP-5
     "get_ui_mode", "set_ui_mode", "get_ui_state",                        # WP-6
+    "bulk_update", "bulk_status",                                        # WP-7
 }
 
 
@@ -118,6 +119,11 @@ class TestConnectHelpers:
             server.get_app()
 
     def test_open_project_launches_when_not_running(self, server, monkeypatch):
+        # Ensure safe_root doesn't interfere (may leak from other test modules)
+        monkeypatch.delenv("MSPROJECT_SAFE_ROOT", raising=False)
+        from src.safe_path import reload_safe_root
+        reload_safe_root()
+
         app = MagicMock()
         app.ActiveProject.configure_mock(Name="a.mpp", FullName="C:\\a.mpp",
                                          ProjectStart="2026-01-01", ProjectFinish="2026-02-01")
