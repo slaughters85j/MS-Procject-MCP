@@ -16,7 +16,7 @@ THREADING CONTRACT: This module assumes single-threaded, STA-compatible
     accessing them from a thread pool will cause crashes or undefined
     behavior, not just data races. If FastMCP ever dispatches tool calls
     off a thread pool, all COM access must be marshalled to the STA thread.
-TODO(WP-6): Enforce STA thread affinity — either pin COM calls to a
+TODO(post-WP-6): Enforce STA thread affinity — either pin COM calls to a
     dedicated STA thread or assert caller is on the correct apartment.
 TODO(WP-8): Performance — UniqueID iteration is O(n) per lookup.
     Consider building a UID→index mapping for large files, invalidated
