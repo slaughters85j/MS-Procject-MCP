@@ -5234,7 +5234,7 @@ def what_if_delay(
 
 
 # ---------------------------------------------------------------------------
-# Hardening tools (WP-1 to WP-6)
+# Hardening tools (WP-1 to WP-7)
 # ---------------------------------------------------------------------------
 
 # WP-3 (src/verify_write.py) is a library for mutating tools, not a tool module.
@@ -5244,6 +5244,7 @@ WP_TOOL_MODULES = (
     ("src.calc_tools", "register_calc_tools"),          # WP-4
     ("src.store_tools", "register_store_tools"),        # WP-5
     ("src.ui_tools", "register_ui_tools"),              # WP-6
+    ("src.bulk_tools", "register_bulk_tools"),          # WP-7
 )
 
 
