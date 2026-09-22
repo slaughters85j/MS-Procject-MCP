@@ -14,8 +14,8 @@ Built on [FastMCP](https://github.com/jlowin/fastmcp). 100+ tools covering tasks
 
 ```bash
 # Clone and install in editable mode
-git clone https://github.com/slaughters85j/MS-Procject-MCP.git
-cd MS-Procject-MCP
+git clone https://github.com/slaughters85j/MS-Project-MCP.git
+cd MS-Project-MCP
 pip install -e .
 
 # With dev dependencies (pytest, coverage)

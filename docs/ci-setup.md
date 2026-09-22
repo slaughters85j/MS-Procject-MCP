@@ -31,7 +31,7 @@ GitHub-hosted Ubuntu runners.
 
 2. **Generate test fixtures** (one-time, or after fixture changes):
    ```powershell
-   cd MS-Procject-MCP
+   cd MS-Project-MCP
    python tests/fixtures/generate_fixtures.py
    ```
    This creates `.mpp` files in `tests/fixtures/generated/`.

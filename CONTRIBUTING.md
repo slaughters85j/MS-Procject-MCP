@@ -13,8 +13,8 @@ Thanks for your interest in contributing! Here's how to get started.
 1. Fork the repository
 2. Clone your fork:
    ```bash
-   git clone git@github.com:<your-username>/MS-Procject-MCP.git
-   cd MS-Procject-MCP
+   git clone git@github.com:<your-username>/MS-Project-MCP.git
+   cd MS-Project-MCP
    ```
 3. Create a branch:
    ```bash
