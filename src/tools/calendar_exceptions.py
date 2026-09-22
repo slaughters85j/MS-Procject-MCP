@@ -55,7 +55,7 @@ def register_calendar_exceptions_tools(mcp):
             # pjCalendarExceptionDaily = 1
             start_dt  = _parse_date(start)
             finish_dt = _parse_date(finish)
-            exc = cal.Exceptions.Add(1, start_dt, finish_dt, name)
+            cal.Exceptions.Add(1, start_dt, finish_dt, name)
         except Exception as e:
             return json.dumps({"error": f"Failed to set exception: {e}"})
 

@@ -1,5 +1,5 @@
 """
-WP-3: Verify-After-Write
+Verify-After-Write
 
 After every mutation, re-read the fields you think you set and return
 {requested, actual, drifted}. Project will lie to you via recalculation.
@@ -18,7 +18,7 @@ import time
 from dataclasses import dataclass, field, asdict
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 

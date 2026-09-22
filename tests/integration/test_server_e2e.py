@@ -1,21 +1,20 @@
 """
-WP-8 End-to-End COM Smoke Tests
+End-to-End COM Smoke Tests
 
 Validates core COM operations (create, read, update, delete, save/reopen)
 against a real MS Project instance. These exercise the COM layer that
 server.py tools depend on — not the MCP tool wrappers themselves.
 
-For server.py tool-level tests, see the per-WP test files which test
+For server.py tool-level tests, see the per-module live test files which test
 through the module APIs (ProjectSession, TaskStore, verify_write, etc.).
 """
 
 import os
 import sys
-import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from conftest import live_task_count, find_task_by_uid
+from .conftest import live_task_count, find_task_by_uid
 
 
 class TestCOMRoundTrip:

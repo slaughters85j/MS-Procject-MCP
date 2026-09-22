@@ -1,5 +1,5 @@
 """
-WP-6: Concurrency and UI — UI lock
+Concurrency and UI — UI lock
 
 Protects tool calls from the MS Project window. Three modes:
 - INVISIBLE: Application.Visible = False. No window, nothing to click.
@@ -21,7 +21,7 @@ MS Project COM facts used here (Microsoft Learn, Project VBA reference):
   text shows; setting it to False restores the default text.
 
 THREADING CONTRACT: This module assumes single-threaded, STA-compatible
-    COM access, same as task_store.py (WP-5). MS Project COM objects are
+    COM access, same as task_store.py. MS Project COM objects are
     STA (Single-Threaded Apartment); calling them from a thread pool
     crashes or corrupts state. The module-level mode and lock state below
     are not thread-safe for the same reason, and they persist for the

@@ -8,14 +8,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-WP_LOAD_ERRORS = []
+HARDENING_LOAD_ERRORS = []
 
 
-def _record_wp_error(module_name, exc):
+def _record_load_error(module_name, exc):
     """Log a hardening module that failed to load and keep the message for health_check."""
     msg = f"{module_name} failed to load ({type(exc).__name__}): {exc}"
     logger.error("Hardening tools unavailable: %s", msg)
-    WP_LOAD_ERRORS.append(msg)
+    HARDENING_LOAD_ERRORS.append(msg)
 
 
 # MARK: Path confinement and dry-run mode
@@ -74,4 +74,4 @@ try:
     from .project_session import get_session
 except Exception as e:
     get_session = None
-    _record_wp_error("src.project_session", e)
+    _record_load_error("src.project_session", e)

@@ -1,24 +1,24 @@
 """
-WP-7: Idempotent Bulk Operations
+Idempotent Bulk Operations
 
 Bulk add/update with dry-run/apply, per-item results, no silent partial
 success.  Every item gets an explicit status: ok, skipped (idempotent),
 drifted (verify-after-write detected recalc), or error.
 
 The apply path wraps the entire batch in:
-  - deferred_calc  (WP-4) — one recalc after all writes, not N
-  - ui_lock        (WP-6) — ScreenUpdating frozen while mutating
+  - deferred_calc — one recalc after all writes, not N
+  - ui_lock       — ScreenUpdating frozen while mutating
 
 THREADING CONTRACT
   All public functions assume they run on the COM STA thread that owns
   the Application object.  Do NOT call from a thread-pool worker.
-  WP-6 ui_lock and WP-4 deferred_calc share this assumption.
+  ui_lock and deferred_calc share this assumption.
 
 NOTE: Testing against live MS Project remains required.
 """
 
 import logging
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 class BulkAction(Enum):
     """Supported bulk operations."""
     UPDATE = "update"
-    INSERT = "insert"   # TODO(WP-8): implement
-    DELETE = "delete"   # TODO(WP-8): implement
+    INSERT = "insert"   # TODO: implement
+    DELETE = "delete"   # TODO: implement
 
 
 @dataclass
@@ -242,7 +242,7 @@ def apply(app, project, items: List[BulkItem], store) -> BulkResult:
     """
     Execute a bulk mutation: resolve, write, verify per item.
 
-    The entire batch is wrapped in deferred_calc (WP-4) and ui_lock (WP-6).
+    The entire batch is wrapped in deferred_calc and ui_lock.
     After all items, calculate_project triggers a single recalc.
 
     Per-item COM errors are captured and reported; they do NOT abort the
@@ -277,8 +277,8 @@ def apply(app, project, items: List[BulkItem], store) -> BulkResult:
         ]
         return result
 
-    with deferred_calc(app) as _calc_state:
-        with ui_lock(app) as _ui_state:
+    with deferred_calc(app):
+        with ui_lock(app):
             for item in items:
                 ir = _apply_one(item, store, verify_task_write)
                 result.items.append(ir)
@@ -352,7 +352,7 @@ def _apply_one(item: BulkItem, store, verify_fn) -> ItemResult:
                       f"{type(e).__name__}: {e}",
             )
 
-    # Verify-after-write (WP-3)
+    # Verify-after-write
     try:
         vresult = verify_fn(task, item.fields)
         verification = vresult.to_dict()

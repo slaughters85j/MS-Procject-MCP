@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-WP-8: Fixture Generator
+Fixture Generator
 
 Creates .mpp fixture files via COM automation on Windows.
 Run this ONCE on a Windows machine with MS Project installed:
@@ -22,7 +22,6 @@ FIXTURES CREATED:
 
 import os
 import sys
-import time
 import datetime
 
 
@@ -60,7 +59,7 @@ def create_basic_project(app):
     print("Creating basic_project.mpp...")
     app.FileNew()
     proj = app.ActiveProject
-    proj.Title = "WP-8 Basic Fixture"
+    proj.Title = "Basic Fixture"
     mpd = proj.MinutesPerDay
 
     t1 = proj.Tasks.Add("Summary Phase")
@@ -92,7 +91,7 @@ def create_large_project(app):
     print("Creating large_project.mpp...")
     app.FileNew()
     proj = app.ActiveProject
-    proj.Title = "WP-8 Large Fixture"
+    proj.Title = "Large Fixture"
     mpd = proj.MinutesPerDay
 
     # Suppress calc during bulk add
@@ -116,11 +115,11 @@ def create_large_project(app):
 
 
 def create_multi_resource(app):
-    """Tasks with resource assignments for WP-5 store tests."""
+    """Tasks with resource assignments for TaskStore tests."""
     print("Creating multi_resource.mpp...")
     app.FileNew()
     proj = app.ActiveProject
-    proj.Title = "WP-8 Resource Fixture"
+    proj.Title = "Resource Fixture"
     mpd = proj.MinutesPerDay
 
     t1 = proj.Tasks.Add("Design Review")
@@ -140,11 +139,11 @@ def create_multi_resource(app):
 
 
 def create_constrained(app):
-    """Tasks with scheduling constraints for WP-3 verify tests."""
+    """Tasks with scheduling constraints for verify_write tests."""
     print("Creating constrained.mpp...")
     app.FileNew()
     proj = app.ActiveProject
-    proj.Title = "WP-8 Constrained Fixture"
+    proj.Title = "Constrained Fixture"
     mpd = proj.MinutesPerDay
 
 
@@ -171,7 +170,7 @@ def create_empty_project(app):
     print("Creating empty_project.mpp...")
     app.FileNew()
     proj = app.ActiveProject
-    proj.Title = "WP-8 Empty Fixture"
+    proj.Title = "Empty Fixture"
     _save_and_close(app, "empty_project.mpp")
 
 

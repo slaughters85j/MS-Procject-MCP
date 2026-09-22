@@ -15,7 +15,7 @@ def _find_app():
     """
     Return the running MS Project COM app, or None if Project is not running.
 
-    Prefers the WP-1 session's app when attached: Office apps started by automation
+    Prefers the ProjectSession's app when attached: Office apps started by automation
     can stay out of the Running Object Table, so GetActiveObject may not find a
     hidden instance that the session launched.
 
@@ -39,7 +39,7 @@ def _find_app():
 
 def _launch_app():
     """
-    Launch MS Project. With the WP-1 session available, the session launches and owns
+    Launch MS Project. With the ProjectSession available, the session launches and owns
     the instance, so it follows the session's headless setting (default Visible=False).
     """
     if get_session is not None:
@@ -56,7 +56,7 @@ def get_app(require_project=True):
     """Get running MS Project instance.
 
     Raises RuntimeError with diagnostic guidance covering the three most common
-    failure modes (adapted from devGPL fork, Item #8):
+    failure modes (adapted from the devGPL fork):
       1. MS Project not running
       2. Elevated shell hiding the Running Object Table entry
       3. Wrong Windows logon session (e.g. SSH)

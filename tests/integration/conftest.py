@@ -1,5 +1,5 @@
 """
-WP-8: Integration test harness — conftest.py
+Integration test harness — conftest.py
 
 Pytest fixtures that launch MS Project via COM, open fixture .mpp files,
 and tear down cleanly. Each test gets a fresh Project instance (no
@@ -21,7 +21,6 @@ import time
 import shutil
 import logging
 import subprocess
-import tempfile
 import pytest
 
 logger = logging.getLogger(__name__)
@@ -227,7 +226,7 @@ def temp_mpp(project_app, tmp_path):
         logger.info("No fixture found — creating minimal project on-the-fly")
         app.FileNew()
         proj = app.ActiveProject
-        proj.Title = "WP-8 Test Fixture (auto-generated)"
+        proj.Title = "Test Fixture (auto-generated)"
 
         # Add a handful of tasks for tests to work with
         t1 = proj.Tasks.Add("Summary Phase")
@@ -259,7 +258,7 @@ def temp_mpp(project_app, tmp_path):
 @pytest.fixture(scope="function")
 def session_fixture(com_init):
     """
-    A fresh ProjectSession (WP-1) wired for integration testing.
+    A fresh ProjectSession wired for integration testing.
 
     Attaches with headless=True, quit_on_detach=True.
     Detaches in teardown — Project quits automatically.
@@ -285,7 +284,7 @@ def session_fixture(com_init):
 @pytest.fixture(scope="function")
 def temp_mpp_via_session(session_fixture, tmp_path):
     """
-    Open a temp .mpp through the ProjectSession (tests the full WP-1 path).
+    Open a temp .mpp through the ProjectSession (exercises the full attach, open, and detach path).
 
     Creates a minimal project on-the-fly, saves to tmp_path.
     Yields (session, app, project, temp_file_path).
@@ -295,7 +294,7 @@ def temp_mpp_via_session(session_fixture, tmp_path):
 
     app.FileNew()
     proj = app.ActiveProject
-    proj.Title = "WP-8 Session Test"
+    proj.Title = "Session Test"
 
     t1 = proj.Tasks.Add("Phase 1")
     t1.OutlineLevel = 1

@@ -1,8 +1,8 @@
 """
-MSPROJECT_DRY_RUN server-wide safety net (Sprint 1, from 4nswer fork).
+MSPROJECT_DRY_RUN server-wide safety net (adapted from the 4nswer fork).
 
 When MSPROJECT_DRY_RUN=1, all mutation tools return what they WOULD do
-without executing.  Complementary to WP-7's per-operation dry-run mode.
+without executing.  Complementary to bulk_ops' per-operation dry-run mode.
 
 Usage in a tool function::
 

@@ -1,5 +1,5 @@
 """
-WP-7: Bulk operation MCP tools.
+Bulk operation MCP tools.
 
 Exposes bulk_update and bulk_status as MCP tools.
 These are registered on the FastMCP instance in server.py.
@@ -12,8 +12,8 @@ import logging
 from typing import Optional
 
 from .bulk_ops import (
-    BulkAction, BulkItem, BulkResult,
-    validate_bulk_items, dry_run, apply,
+    BulkAction, BulkItem, dry_run,
+    apply,
 )
 from .task_store import get_store
 from .project_session import get_session
@@ -91,7 +91,6 @@ def _parse_items(raw: str) -> list[BulkItem]:
 
 def register_bulk_tools(mcp):
     """Register bulk operation tools on the given FastMCP instance."""
-    global _last_result
 
     @mcp.tool()
     def bulk_update(items: str, mode: str = "dry_run") -> dict:

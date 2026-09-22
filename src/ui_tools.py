@@ -1,5 +1,5 @@
 """
-WP-6: MCP tools for UI mode control.
+MCP tools for UI mode control.
 
 Registers tools that let the LLM orchestrator:
 - Read the effective UI mode (invisible / locked / open)

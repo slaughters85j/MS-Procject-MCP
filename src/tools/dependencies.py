@@ -229,7 +229,6 @@ def register_dependencies_tools(mcp):
         """
         app  = get_app()
         proj = get_proj(app)
-        mpd  = _get_mpd(proj)
 
         root = _find_task(proj, unique_id)
         if root is None:
@@ -269,11 +268,7 @@ def register_dependencies_tools(mcp):
 
                     if next_task.UniqueID not in visited:
                         visited.add(next_task.UniqueID)
-                        # Add link info to the chain entry
-                        link_type = dep.Type
-                        lag_days = round(dep.Lag / mpd, 2) if dep.Lag else 0
                         queue.append((next_task, depth + 1))
-                        # Update last chain entry with link info when it's added
             except Exception:
                 pass
 

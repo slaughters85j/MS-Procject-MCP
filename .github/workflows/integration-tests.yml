@@ -1,4 +1,4 @@
-# WP-8: Integration test workflow
+# Integration test workflow
 #
 # IMPORTANT: This workflow requires a SELF-HOSTED Windows runner with
 # MS Project 2016+ installed and licensed. GitHub-hosted runners do NOT

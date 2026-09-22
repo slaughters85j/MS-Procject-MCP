@@ -1,5 +1,5 @@
 """
-Sprint 4: FastMCP tools for mpxj fast-read path.
+FastMCP tools for the mpxj fast-read path.
 
 These tools read from the SAVED .mpp file on disk — NOT the live COM state.
 Unsaved changes in MS Project are NOT reflected. For live state, use the
@@ -12,9 +12,7 @@ All tools:
   - Provide descriptive error messages for MCP-consuming agents.
 """
 
-import json
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -24,12 +22,10 @@ __all__ = ["register_mpxj_tools"]
 def register_mpxj_tools(mcp) -> None:
     """Register all mpxj fast-read tools on the FastMCP server instance."""
 
-    # Import dependencies with graceful fallback
+    # A failed import here is caught by server.py and reported by health_check.
     from .mpxj_reader import (
         read_tasks, read_resources, read_assignments,
-        read_calendars, read_project_info,
-        MpxjError, MpxjNotAvailableError, MpxjFileError, MpxjParseError,
-        is_mpxj_available,
+        read_calendars, read_project_info, MpxjError,
     )
     from .safe_path import validate_safe_path
     from .response import (

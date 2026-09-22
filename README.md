@@ -142,7 +142,7 @@ pytest tests/ -v
 pytest tests/integration/ -v
 ```
 
-The test suite includes 200+ tests across 7 phases (core CRUD, resources, calendars, scheduling, advanced ops, timephased data, critical path intelligence) plus WP-specific unit tests and an integration harness (WP-8) with fixture generation.
+Unit tests in `tests/` mock COM and mpxj, so they run on any platform. `tests/integration/` holds the live tests: per-module COM tests for the hardening modules, plus tool-level scenario tests (`*_live.py`) that drive the MCP tools end to end against a real MS Project. They skip automatically when MS Project is not available, and `tests/fixtures/generate_fixtures.py` builds the `.mpp` fixtures they use.
 
 ### Branch Structure
 

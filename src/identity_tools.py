@@ -1,5 +1,5 @@
 """
-WP-2: Project identity MCP tools.
+Project identity MCP tools.
 
 Exposes project identity and switch_project as explicit MCP tools.
 These replace implicit "whatever is active" behavior.
@@ -7,7 +7,6 @@ These replace implicit "whatever is active" behavior.
 NOTE: Testing against live MS Project remains required.
 """
 
-import json
 import logging
 from dataclasses import asdict
 

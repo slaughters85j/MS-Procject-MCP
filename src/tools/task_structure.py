@@ -303,7 +303,6 @@ def register_task_structure_tools(mcp):
             app.EditPaste()
 
             # Collect newly created tasks
-            new_count = proj.Tasks.Count
             for t in proj.Tasks:
                 if t is not None and t.ID > last_id:
                     all_copied.append({
@@ -371,7 +370,6 @@ def register_task_structure_tools(mcp):
             return json.dumps({"error": f"Target task UniqueID {after_unique_id} not found."})
 
         old_id = t.ID
-        old_level = t.OutlineLevel
 
         # Select and cut the source task row
         app.SelectRow(t.ID, False)

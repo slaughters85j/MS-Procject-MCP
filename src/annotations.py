@@ -1,12 +1,12 @@
 """
-Sprint 3, Item #12: ToolAnnotations on All Tools
+ToolAnnotations on All Tools
 
 Classifies every tool with MCP ToolAnnotations(title, readOnlyHint,
 destructiveHint, idempotentHint) per the MCP spec. Applied post-registration
 by matching tool names.
 
 Classifies every tool with readOnlyHint, destructiveHint, idempotentHint.
-WP-specific: bulk_update is idempotent (set-based); dry_run is read-only.
+Special cases: bulk_update is idempotent (set-based); dry_run is read-only.
 """
 
 import logging
@@ -72,7 +72,7 @@ TOOL_ANNOTATIONS: Dict[str, Dict[str, Optional[bool]]] = {
     "copy_task_structure":   {"title": "Copy Task Structure",    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
     "add_recurring_task":    {"title": "Add Recurring Task",     "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
 
-    # --- Bulk operations (WP-7: idempotent by design) ---
+    # --- Bulk operations (idempotent by design) ---
     "bulk_update_tasks":     {"title": "Bulk Update Tasks",      "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
     "bulk_add_tasks":        {"title": "Bulk Add Tasks",         "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False},
     "bulk_update_rag":       {"title": "Bulk Update RAG",        "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
@@ -151,38 +151,38 @@ TOOL_ANNOTATIONS: Dict[str, Dict[str, Optional[bool]]] = {
     "health_check":            {"title": "Health Check",            "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
     "get_tool_guide":          {"title": "Get Tool Guide",          "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
 
-    # --- WP-1: Session tools ---
+    # --- Session tools ---
     "session_attach":          {"title": "Session Attach",          "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
     "session_detach":          {"title": "Session Detach",          "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
     "session_info":            {"title": "Session Info",            "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
 
-    # --- WP-2: Identity tools ---
+    # --- Identity tools ---
     "get_project_identity":    {"title": "Get Project Identity",    "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
     "validate_project":        {"title": "Validate Project",        "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
     "switch_project_confirmed": {"title": "Switch Project Confirmed", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
     "list_open_projects":      {"title": "List Open Projects",      "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
 
-    # --- WP-4: Calc tools ---
+    # --- Calc tools ---
     "get_calculation_mode":    {"title": "Get Calculation Mode",    "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
     "set_calculation_mode":    {"title": "Set Calculation Mode",    "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
     "calculate_now":           {"title": "Calculate Now",           "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
 
-    # --- WP-5: Store tools ---
+    # --- Store tools ---
     "resolve_task":            {"title": "Resolve Task",            "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
     "resolve_resource":        {"title": "Resolve Resource",        "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
     "invalidate_store":        {"title": "Invalidate Store",        "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
     "store_stats":             {"title": "Store Stats",             "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
 
-    # --- WP-6: UI tools ---
+    # --- UI tools ---
     "get_ui_mode":             {"title": "Get UI Mode",             "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
     "set_ui_mode":             {"title": "Set UI Mode",             "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
     "get_ui_state":            {"title": "Get UI State",            "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
 
-    # --- WP-7: Bulk ops (registered via bulk_tools.py) ---
+    # --- Bulk ops (registered via bulk_tools.py) ---
     "bulk_update":             {"title": "Bulk Update",             "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True},
     "bulk_status":             {"title": "Bulk Status",             "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
 
-    # --- Sprint 4: mpxj fast-read (reads SAVED .mpp file, no COM) ---
+    # --- mpxj fast-read (reads SAVED .mpp file, no COM) ---
     "mpxj_read_tasks":         {"title": "MPXJ Read Tasks",         "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
     "mpxj_read_resources":     {"title": "MPXJ Read Resources",     "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},
     "mpxj_read_project_info":  {"title": "MPXJ Read Project Info",  "readOnlyHint": True,  "destructiveHint": False, "idempotentHint": True},

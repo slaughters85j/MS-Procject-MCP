@@ -16,7 +16,7 @@ def register_meta_tools(mcp):
     def health_check() -> str:
         """
         Lightweight connectivity test. Returns MS Project version, whether a project
-        is open, and basic project info if available. Lists any hardening (WP) tool
+        is open, and basic project info if available. Lists any hardening tool
         modules that failed to load under "hardening_tool_errors".
         """
         app = _find_app()
@@ -35,10 +35,10 @@ def register_meta_tools(mcp):
             else:
                 result["project_open"] = False
 
-        if guards.WP_LOAD_ERRORS:
-            result["hardening_tool_errors"] = guards.WP_LOAD_ERRORS
+        if guards.HARDENING_LOAD_ERRORS:
+            result["hardening_tool_errors"] = guards.HARDENING_LOAD_ERRORS
 
-        # Sprint-1 safety status
+        # Safety guard status
         result["safe_root"] = get_safe_root()
         result["dry_run"] = is_dry_run()
 

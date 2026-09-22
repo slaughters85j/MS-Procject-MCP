@@ -1,5 +1,5 @@
 """
-Sprint 2, Item #6: Schema Size Reduction
+Schema Size Reduction
 
 Strips pydantic's auto-generated "title" fields from tool schema properties.
 These are decorative (e.g. "title": "Unique Id" next to a property named

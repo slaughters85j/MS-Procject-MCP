@@ -1,5 +1,5 @@
 """
-WP-1: Session management MCP tools.
+Session management MCP tools.
 
 Exposes attach, detach, and session_info as MCP tools.
 These are registered on the FastMCP instance in server.py.
@@ -10,7 +10,7 @@ NOTE: Testing remains required — MS Project not available on build machine.
 import logging
 from dataclasses import asdict
 
-from .project_session import get_session, SessionState
+from .project_session import get_session
 
 logger = logging.getLogger(__name__)
 

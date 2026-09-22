@@ -299,7 +299,6 @@ def register_critical_path_tools(mcp):
 
         target_info = task_data[unique_id]
         target_total_slack = target_info["total_slack"]
-        target_free_slack  = target_info["free_slack"]
 
         # Project end date impact
         project_finish = _to_naive(proj.ProjectFinish)

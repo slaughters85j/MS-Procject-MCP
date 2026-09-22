@@ -4,7 +4,7 @@ Adapted from devGPL fork. See BREAKING_CHANGES.md for contract details.
 """
 
 import json
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 
 __all__ = [
     "paginate",

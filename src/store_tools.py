@@ -1,5 +1,5 @@
 """
-WP-5: MCP tools for task/resource resolution.
+MCP tools for task/resource resolution.
 
 Registers tools that let the LLM orchestrator:
 - Resolve a task by UniqueID (with stale proxy retry)

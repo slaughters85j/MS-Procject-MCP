@@ -1,5 +1,5 @@
 """
-WP-2: Active-Project Identity
+Active-Project Identity
 
 Ensures every mutating operation targets the correct project.
 Never trust "whatever is active" — require explicit project identity.
@@ -130,7 +130,7 @@ def validate_project_target(app, project_id: str) -> ProjectIdentity:
     if canonical_path(project_id) == active.canonical:
         return active
 
-    # No match — this is the whole point of WP-2
+    # No match: the mismatch this identity check exists to catch
     raise ProjectMismatchError(
         requested=project_id,
         active=f"{active.display_name} ({active.hash_id})"
@@ -141,7 +141,7 @@ def require_project_id(get_app_fn: Callable):
     """
     Decorator factory for mutating MCP tools.
 
-    TODO(WP-2): TOCTOU risk — validation and execution are not atomic.
+    TODO: TOCTOU risk — validation and execution are not atomic.
     In the current single-threaded MCP model this is safe, but if
     concurrent dispatch is ever enabled, pin the project COM reference
     during validation and pass it through to the wrapped function.

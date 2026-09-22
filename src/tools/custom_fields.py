@@ -23,7 +23,6 @@ def register_custom_fields_tools(mcp):
         """
         fields = json.loads(fields_json)
         app    = get_app()
-        proj   = get_proj(app)
 
         # pjCustomTaskText1 = 188743731, each subsequent +1
         BASE_TEXT_FIELD_ID = 188743731

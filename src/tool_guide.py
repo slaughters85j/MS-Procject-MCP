@@ -1,14 +1,14 @@
 """
-Sprint 2, Item #13: Server Instructions + Tool Guide
+Server Instructions + Tool Guide
 
 Provides:
   1. SERVER_INSTRUCTIONS — text passed to FastMCP(instructions=...) so LLM
      clients receive batching rules and environment guidance at session init.
   2. get_tool_guide() — meta-tool returning a categorized tool inventory
-     organized by our WP architecture, not by 4nswer's original categories.
+     organized by architectural concern, not by 4nswer's original categories.
 
 Adapted from 4nswer fork's SERVER_INSTRUCTIONS and get_tool_guide(). Categories
-reflect our WP-1 through WP-8 architecture and bulk_ops design.
+reflect the hardening modules and bulk_ops design.
 """
 
 import json
@@ -51,14 +51,14 @@ ENVIRONMENT:
   MSPROJECT_SAFE_ROOT   Directory all file tools are confined to (required).
   MSPROJECT_DRY_RUN=1   Read/preview-only mode; mutations logged but not applied.
 
-HARDENING (WP-1 to WP-7):
-  WP-1 ProjectSession manages COM lifecycle. Use session_info to check state.
-  WP-2 ProjectIdentity provides canonical project hash and path.
-  WP-3 verify_write re-reads fields after every mutation for drift detection.
-  WP-4 CalcPolicy controls recalculation timing (deferred_calc).
-  WP-5 TaskStore resolves tasks by UniqueID with stale-proxy detection.
-  WP-6 UILock manages ScreenUpdating and StatusBar for batch operations.
-  WP-7 bulk_ops supports dry-run/apply with per-item verification.
+HARDENING:
+  ProjectSession manages COM lifecycle. Use session_info to check state.
+  ProjectIdentity provides canonical project hash and path.
+  verify_write re-reads fields after every mutation for drift detection.
+  CalcPolicy controls recalculation timing (deferred_calc).
+  TaskStore resolves tasks by UniqueID with stale-proxy detection.
+  UILock manages ScreenUpdating and StatusBar for batch operations.
+  bulk_ops supports dry-run/apply with per-item verification.
 
 Call get_tool_guide() for the full tool category map and efficiency rules.\
 """
@@ -73,7 +73,7 @@ _TOOL_GUIDE = {
         "Use undo_last (up to 10) as a safety net after any bulk mutation.",
         "MSPROJECT_SAFE_ROOT must be set before any file-taking tool will run.",
         "Set MSPROJECT_DRY_RUN=1 for read/preview-only mode.",
-        "Check health_check to verify which hardening modules (WP-1 to WP-7) loaded successfully.",
+        "Check health_check to verify which hardening modules loaded successfully.",
     ],
     "bulk_pairs": {
         "create_tasks":         {"single": "add_task",             "bulk": "bulk_add_tasks"},
@@ -153,7 +153,7 @@ _TOOL_GUIDE = {
         "display_filters": [
             "apply_filter",
         ],
-        "wp_hardening": [
+        "hardening": [
             "session_info", "session_attach", "session_detach",
             "get_project_identity", "validate_project",
             "switch_project_confirmed", "list_open_projects",
@@ -183,7 +183,7 @@ def register_tool_guide(mcp):
 
         Call this before starting any multi-step operation to avoid inefficient
         single-item loops. Returns categorized tool inventory organized by
-        concern (WP architecture), efficiency rules, and single-to-bulk
+        concern, efficiency rules, and single-to-bulk
         tool pairs.
         """
         return json.dumps(_TOOL_GUIDE, indent=2)

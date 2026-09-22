@@ -1,5 +1,5 @@
 """
-WP-5: COM Proxy Refresh — TaskStore
+COM Proxy Refresh — TaskStore
 
 Drop cached Task/Resource references after switch, save, or insert.
 Re-resolve by UniqueID every time. Stale COM proxy detection with
@@ -16,17 +16,17 @@ THREADING CONTRACT: This module assumes single-threaded, STA-compatible
     accessing them from a thread pool will cause crashes or undefined
     behavior, not just data races. If FastMCP ever dispatches tool calls
     off a thread pool, all COM access must be marshalled to the STA thread.
-TODO(post-WP-6): Enforce STA thread affinity — either pin COM calls to a
+TODO: Enforce STA thread affinity — either pin COM calls to a
     dedicated STA thread or assert caller is on the correct apartment.
-TODO(WP-8): Performance — UniqueID iteration is O(n) per lookup.
+TODO: Performance — UniqueID iteration is O(n) per lookup.
     Consider building a UID→index mapping for large files, invalidated
     on the same events that clear the store.
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 

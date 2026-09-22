@@ -1,5 +1,5 @@
 """
-MSPROJECT_SAFE_ROOT path confinement (Sprint 1, from 4nswer fork).
+MSPROJECT_SAFE_ROOT path confinement (adapted from the 4nswer fork).
 
 When the environment variable MSPROJECT_SAFE_ROOT is set, all file-path-taking
 tools must route through validate_safe_path() before touching the filesystem.

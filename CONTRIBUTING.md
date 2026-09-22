@@ -58,20 +58,22 @@ Import safety helpers (`validate_safe_path`, `is_dry_run`, `com_call`, the respo
 
 ## Testing
 
-Tests are organized by phase. Each test file creates a temporary project, runs assertions, and cleans up.
+Unit tests live in `tests/`, named after the module they cover (`test_task_store.py`, `test_mpxj_reader.py`), and mock COM so they run on any platform:
 
 ```bash
-python test_phase2.py   # 10 tests
-python test_phase3.py   # 15 tests
-python test_phase4.py   # 21 tests
-python test_phase5.py   # 11 tests
+pytest
 ```
 
-**Important:** MS Project must be running before you execute tests.
+Live tests live in `tests/integration/` and need Windows with MS Project installed; they skip automatically elsewhere. The tool-level scenario tests (`*_live.py`) each create a temporary project, drive the MCP tools, and clean up. Run them all with pytest, or one directly:
+
+```bash
+pytest tests/integration/ -v
+python tests/integration/test_critical_path_live.py
+```
 
 ### Adding Tests
 
-If you add a new tool, add corresponding tests. Follow the existing pattern:
+If you add a new tool, add a unit test for it and extend the `*_live.py` scenario for its domain. The live scenarios call tools through this helper:
 
 ```python
 async def call(tool_name, **kwargs):
@@ -83,7 +85,7 @@ async def call(tool_name, **kwargs):
 
 ## Submitting Changes
 
-1. Run all test phases and confirm they pass
+1. Run `pytest` (and `pytest tests/integration/` on Windows with MS Project) and confirm everything passes
 2. Commit with a clear message describing what and why
 3. Push to your fork and open a Pull Request
 4. Describe the change, link any related issues, and note which tests cover it

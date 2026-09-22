@@ -1,5 +1,5 @@
 """
-Sprint 2, Item #7: COM Retry with Geometric Backoff
+COM Retry with Geometric Backoff
 
 Handles transient COM "busy" errors that occur when MS Project is
 recalculating, showing a modal dialog, or settling after a large operation.
@@ -12,13 +12,13 @@ These are NOT "MS Project crashed" errors. They are transient refusals
 from the OLE message filter. Retrying after a short delay resolves them.
 
 Adapted from devGPL fork's _com_retry(), rewritten to integrate with
-our WP-1 ProjectSession architecture rather than their flat module layout.
+our ProjectSession architecture rather than their flat module layout.
 """
 
 import functools
 import logging
 import time
-from typing import TypeVar, Callable, Any
+from typing import Callable, Any
 
 logger = logging.getLogger(__name__)
 

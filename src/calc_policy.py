@@ -1,5 +1,5 @@
 """
-WP-4: Calculate Policy
+Calculate Policy
 
 Explicit calculate_project vs deferred calc. Suppresses automatic
 calculation during batch operations so that 40 COM writes + 1 calc
@@ -12,9 +12,9 @@ MS Project COM constants:
 
 NOTE: Testing against live MS Project remains required.
 
-TODO(post-WP-6): Add concurrency guard around original_mode capture in
+TODO: Add concurrency guard around original_mode capture in
     deferred_calc — overlapping calls can clobber each other's restore target.
-TODO(WP-8): Add timeout/cancellation around CalculateAll() for large files —
+TODO: Add timeout/cancellation around CalculateAll() for large files —
     synchronous recalc can block for minutes on 10k-task schedules.
 """
 

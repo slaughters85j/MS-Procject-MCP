@@ -27,7 +27,7 @@ try:
 except Exception:
     _SERVER_INSTRUCTIONS = ""
 
-from src.guards import _record_wp_error, get_session  # noqa: E402
+from src.guards import _record_load_error, get_session  # noqa: E402
 
 mcp = FastMCP("MS Project", instructions=_SERVER_INSTRUCTIONS)
 logger = logging.getLogger(__name__)
@@ -69,50 +69,50 @@ def _register_core_tools():
 _register_core_tools()
 
 # ---------------------------------------------------------------------------
-# Hardening tools (WP-1 to WP-7)
+# Hardening tools
 # ---------------------------------------------------------------------------
 
-# WP-3 (src/verify_write.py) is a library for mutating tools, not a tool module.
-WP_TOOL_MODULES = (
-    ("src.session_tools", "register_session_tools"),    # WP-1
-    ("src.identity_tools", "register_identity_tools"),  # WP-2
-    ("src.calc_tools", "register_calc_tools"),          # WP-4
-    ("src.store_tools", "register_store_tools"),        # WP-5
-    ("src.ui_tools", "register_ui_tools"),              # WP-6
-    ("src.bulk_tools", "register_bulk_tools"),          # WP-7
-    ("src.mpxj_tools", "register_mpxj_tools"),          # Sprint 4: fast-read path
+# src/verify_write.py is a library for mutating tools, not a tool module.
+HARDENING_TOOL_MODULES = (
+    ("src.session_tools", "register_session_tools"),
+    ("src.identity_tools", "register_identity_tools"),
+    ("src.calc_tools", "register_calc_tools"),
+    ("src.store_tools", "register_store_tools"),
+    ("src.ui_tools", "register_ui_tools"),
+    ("src.bulk_tools", "register_bulk_tools"),
+    ("src.mpxj_tools", "register_mpxj_tools"),          # mpxj fast-read path
 )
 
 
 def _session_active_project():
-    """TaskStore's project source: the active project of the WP-1 session."""
+    """TaskStore's project source: the active project of the ProjectSession."""
     if get_session is None:
         raise RuntimeError(
-            "WP-1 session is unavailable. See hardening_tool_errors in health_check."
+            "ProjectSession is unavailable. See hardening_tool_errors in health_check."
         )
     return get_session().app.ActiveProject
 
 
-def _register_wp_tools():
+def _register_hardening_tools():
     """
     Register each hardening module's tools next to the legacy tools. A module that
-    fails to load is logged and recorded in WP_LOAD_ERRORS; the others still load.
+    fails to load is logged and recorded in HARDENING_LOAD_ERRORS; the others still load.
     """
-    for module_name, register_name in WP_TOOL_MODULES:
+    for module_name, register_name in HARDENING_TOOL_MODULES:
         try:
             getattr(importlib.import_module(module_name), register_name)(mcp)
         except Exception as e:
-            _record_wp_error(module_name, e)
+            _record_load_error(module_name, e)
     try:
         from src.task_store import init_store
         init_store(_session_active_project)
     except Exception as e:
-        _record_wp_error("src.task_store", e)
+        _record_load_error("src.task_store", e)
 
 
-_register_wp_tools()
+_register_hardening_tools()
 
-# Sprint 2: Register get_tool_guide meta-tool (Item #13).
+# get_tool_guide meta-tool.
 try:
     from src.tool_guide import register_tool_guide
     register_tool_guide(mcp)
@@ -120,8 +120,8 @@ except Exception as _e:
     logger.warning("tool_guide registration failed: %s", _e)
 
 # ---------------------------------------------------------------------------
-# Sprint 2: Schema size reduction — strip decorative "title" from tool schemas.
-# Must run AFTER all tools are registered (including WP modules above).
+# Schema size reduction: strip decorative "title" from tool schemas.
+# Must run AFTER all tools are registered (including hardening modules above).
 # ---------------------------------------------------------------------------
 try:
     from src.schema_strip import strip_schema_titles
@@ -131,8 +131,8 @@ except Exception as _e:
     _schema_stripped = 0
 
 # ---------------------------------------------------------------------------
-# Sprint 3: ToolAnnotations — classify all tools with MCP annotations.
-# Must run AFTER all tools are registered (including WP modules above).
+# ToolAnnotations: classify all tools with MCP annotations.
+# Must run AFTER all tools are registered (including hardening modules above).
 # ---------------------------------------------------------------------------
 try:
     from src.annotations import apply_annotations

@@ -98,7 +98,6 @@ def register_schedule_analysis_tools(mcp):
         """
         app   = get_app()
         proj  = get_proj(app)
-        mpd   = _get_mpd(proj)
         today = datetime.datetime.now()
 
         issues = {

@@ -1,5 +1,5 @@
 """
-WP-4: MCP tools for calculation policy control.
+MCP tools for calculation policy control.
 
 Registers tools that let the LLM orchestrator:
 - Query the current calculation mode
@@ -10,7 +10,6 @@ Registers tools that let the LLM orchestrator:
 import logging
 from .calc_policy import (
     CalcMode,
-    get_calc_mode,
     get_calc_state,
     set_calc_mode,
     calculate_project,

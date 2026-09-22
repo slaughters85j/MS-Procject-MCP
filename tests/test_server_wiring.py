@@ -1,5 +1,5 @@
 """
-Integration Tests: server.py wiring of the WP-1 to WP-6 tools
+Integration Tests: server.py wiring of the core and hardening tools
 
 Loads server.py with FakeMCP in place of FastMCP, so neither the mcp package
 nor pywin32 is required. Checks that the legacy and hardening tools register
@@ -25,16 +25,20 @@ from tests.fakes import FakeMCP
 SERVER_PATH = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "server.py"
 )
-LEGACY_TOOL_COUNT = 99
-SPRINT2_TOOLS = {"get_tool_guide"}                                       # Sprint 2
-WP_TOOLS = {
-    "session_attach", "session_detach", "session_info",                  # WP-1
+CORE_TOOL_COUNT = 99
+GUIDE_TOOLS = {"get_tool_guide"}
+MPXJ_TOOLS = {
+    "mpxj_read_tasks", "mpxj_read_resources", "mpxj_read_project_info",
+    "mpxj_read_assignments", "mpxj_read_calendars",
+}
+HARDENING_TOOLS = {
+    "session_attach", "session_detach", "session_info",
     "get_project_identity", "validate_project", "switch_project_confirmed",
-    "list_open_projects",                                                # WP-2
-    "get_calculation_mode", "set_calculation_mode", "calculate_now",     # WP-4
-    "resolve_task", "resolve_resource", "invalidate_store", "store_stats",  # WP-5
-    "get_ui_mode", "set_ui_mode", "get_ui_state",                        # WP-6
-    "bulk_update", "bulk_status",                                        # WP-7
+    "list_open_projects",
+    "get_calculation_mode", "set_calculation_mode", "calculate_now",
+    "resolve_task", "resolve_resource", "invalidate_store", "store_stats",
+    "get_ui_mode", "set_ui_mode", "get_ui_state",
+    "bulk_update", "bulk_status",
 }
 
 
@@ -55,12 +59,12 @@ def server(monkeypatch):
 
 
 class TestRegistration:
-    def test_legacy_and_wp_tools_register_side_by_side(self, server):
+    def test_core_and_hardening_tools_register_side_by_side(self, server):
         tools = server.mcp.tools
-        assert WP_TOOLS <= set(tools)
-        assert len(tools) == LEGACY_TOOL_COUNT + len(WP_TOOLS) + len(SPRINT2_TOOLS)
+        assert HARDENING_TOOLS <= set(tools)
+        assert len(tools) == CORE_TOOL_COUNT + len(HARDENING_TOOLS) + len(GUIDE_TOOLS) + len(MPXJ_TOOLS)
         assert server.mcp.duplicates == []
-        assert guards.WP_LOAD_ERRORS == []
+        assert guards.HARDENING_LOAD_ERRORS == []
 
     def test_switch_tools_keep_separate_signatures(self, server):
         tools = server.mcp.tools
@@ -72,16 +76,16 @@ class TestRegistration:
 
     def test_failed_module_is_logged_and_others_load(self, server, monkeypatch, caplog):
         monkeypatch.setattr(server, "mcp", FakeMCP())
-        monkeypatch.setattr(guards, "WP_LOAD_ERRORS", [])
-        monkeypatch.setattr(server, "WP_TOOL_MODULES",
-                            (("src.missing_module", "register_x"),) + server.WP_TOOL_MODULES)
+        monkeypatch.setattr(guards, "HARDENING_LOAD_ERRORS", [])
+        monkeypatch.setattr(server, "HARDENING_TOOL_MODULES",
+                            (("src.missing_module", "register_x"),) + server.HARDENING_TOOL_MODULES)
         with caplog.at_level(logging.ERROR):
-            server._register_wp_tools()
-        assert len(guards.WP_LOAD_ERRORS) == 1
-        assert "src.missing_module" in guards.WP_LOAD_ERRORS[0]
-        assert "ModuleNotFoundError" in guards.WP_LOAD_ERRORS[0]
+            server._register_hardening_tools()
+        assert len(guards.HARDENING_LOAD_ERRORS) == 1
+        assert "src.missing_module" in guards.HARDENING_LOAD_ERRORS[0]
+        assert "ModuleNotFoundError" in guards.HARDENING_LOAD_ERRORS[0]
         assert any("src.missing_module" in r.getMessage() for r in caplog.records)
-        assert WP_TOOLS <= set(server.mcp.tools)
+        assert HARDENING_TOOLS <= set(server.mcp.tools)
 
 
 class TestToolGuideAccuracy:
@@ -102,7 +106,7 @@ class TestToolGuideAccuracy:
 class TestHealthCheck:
     def test_reports_load_errors(self, server, monkeypatch):
         monkeypatch.setattr(meta_tools, "_find_app", lambda: None)
-        monkeypatch.setattr(guards, "WP_LOAD_ERRORS", ["src.ui_tools failed to load (X): y"])
+        monkeypatch.setattr(guards, "HARDENING_LOAD_ERRORS", ["src.ui_tools failed to load (X): y"])
         result = json.loads(server.mcp.tools["health_check"]())
         assert result["status"] == "disconnected"
         assert result["hardening_tool_errors"] == ["src.ui_tools failed to load (X): y"]
@@ -153,5 +157,5 @@ class TestConnectHelpers:
 
     def test_session_project_source_needs_session(self, server, monkeypatch):
         monkeypatch.setattr(server, "get_session", None)
-        with pytest.raises(RuntimeError, match="WP-1 session is unavailable"):
+        with pytest.raises(RuntimeError, match="ProjectSession is unavailable"):
             server._session_active_project()

@@ -1,5 +1,5 @@
 """
-WP-1: Session Ownership
+Session Ownership
 
 Manages the lifecycle of a single MS Project COM connection.
 One ProjectSession instance per server process. Explicit attach/detach.
@@ -11,7 +11,7 @@ NOTE: Testing remains required — MS Project not available on build machine.
 import os
 import logging
 import atexit
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 from typing import Optional
 
@@ -108,7 +108,7 @@ class ProjectSession:
     ):
         """
         Args:
-            headless: Start Project with Visible=False (WP-6 prep).
+            headless: Start Project with Visible=False.
             allow_attach_existing: If True, attach to an already-running
                 Project instance instead of refusing. If False, raise if
                 Project is already running.
@@ -205,7 +205,7 @@ class ProjectSession:
 
         Returns self for chaining.
         """
-        # TODO(WP-1): Add threading.Lock around state transitions if
+        # TODO: Add threading.Lock around state transitions if
         # concurrent MCP dispatch is ever enabled. Currently single-threaded.
         if self._state == SessionState.ATTACHED:
             logger.warning("Already attached — ignoring duplicate attach()")
@@ -279,7 +279,7 @@ class ProjectSession:
                 )
                 self._we_launched = True
 
-            # Configure visibility (WP-6 prep)
+            # Configure visibility
             if self._headless:
                 try:
                     self._app.Visible = False
@@ -419,7 +419,7 @@ def get_session() -> ProjectSession:
     This replaces the old get_app() pattern. Instead of grabbing whatever
     COM object is active, we maintain a single managed session.
 
-    TODO(WP-1): Add reset_session() to handle ERROR state recovery.
+    TODO: Add reset_session() to handle ERROR state recovery.
     Currently a session stuck in ERROR requires process restart.
     """
     global _session
