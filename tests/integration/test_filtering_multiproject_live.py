@@ -1,95 +1,22 @@
 """
-Live tool-level tests for filtering and multi-project work: filter and group queries,
-project switching, calendar writes, custom fields, deadlines, validation, milestones,
-resource workload, and bulk dry runs.
+Live tool-level tests for project switching, filter and group queries, calendar writes
+and custom fields.
 
 Requires MS Project on Windows; skipped otherwise by tests/integration/conftest.py.
 Run under pytest, or directly: python tests/integration/test_filtering_multiproject_live.py
 """
 import asyncio
 import json
-import importlib.util
 import os
 import sys
+
 sys.path.insert(0, os.path.dirname(__file__))
-from _toolcall import tool_text  # noqa: E402
-
-_server_path = os.path.join(os.path.dirname(__file__), "..", "..", "server.py")
-spec = importlib.util.spec_from_file_location("server", _server_path)
-mod = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(mod)
-
-
-async def call(name, args=None):
-    """Call an MCP tool and return parsed JSON or raw text."""
-    r = await mod.mcp.call_tool(name, args or {})
-    text = tool_text(r)
-    try:
-        return json.loads(text)
-    except (json.JSONDecodeError, TypeError):
-        return text
+from _filtering_common import call, setup_project, finish  # noqa: E402
 
 
 async def run_tests():
     results = {}
-    task_uids = {}
-
-    # =======================================================================
-    # SETUP: Create test project with hierarchy, resources, links, RAG
-    # =======================================================================
-    print("=== Setup: new_project ===")
-    r = await call("new_project", {"title": "Filtering Test", "start": "2026-04-01"})
-    main_project_name = r["name"]  # Actual name (e.g. "Project1")
-    print(f"  Project: {main_project_name}")
-
-    print("=== Setup: bulk_add_tasks ===")
-    tasks = [
-        {"name": "Programme Alpha", "outline_level": 1},
-        {"name": "Design Work", "outline_level": 2, "start": "2026-04-01", "finish": "2026-05-01", "duration_days": 22},
-        {"name": "Build Work", "outline_level": 2, "start": "2026-05-02", "finish": "2026-06-30", "duration_days": 43},
-        {"name": "Testing", "outline_level": 3, "start": "2026-06-01", "finish": "2026-06-20", "duration_days": 15},
-        {"name": "Go-Live Milestone", "outline_level": 2, "milestone": True, "start": "2026-06-30"},
-        {"name": "Programme Beta", "outline_level": 1},
-        {"name": "Planning", "outline_level": 2, "start": "2026-04-01", "finish": "2026-04-15", "duration_days": 11},
-        {"name": "Execution", "outline_level": 2, "start": "2026-04-16", "finish": "2026-07-31", "duration_days": 77},
-    ]
-    r = await call("bulk_add_tasks", {"tasks_json": json.dumps(tasks)})
-    print(f"  Created: {r['created']} tasks")
-    task_uids = {t["name"]: t["unique_id"] for t in r["tasks"]}
-
-    # Add resources
-    print("=== Setup: add_resource ===")
-    await call("add_resource", {"name": "Alice", "type": 0, "max_units": 1.0})
-    await call("add_resource", {"name": "Bob", "type": 0, "max_units": 1.0})
-    print("  Resources: Alice, Bob")
-
-    # Assign resources
-    print("=== Setup: assign_resource ===")
-    await call("assign_resource", {"task_unique_id": task_uids["Design Work"], "resource_name": "Alice"})
-    await call("assign_resource", {"task_unique_id": task_uids["Build Work"], "resource_name": "Alice"})
-    await call("assign_resource", {"task_unique_id": task_uids["Testing"], "resource_name": "Bob"})
-    print("  Assignments: Alice->Design+Build, Bob->Testing")
-
-    # Add predecessor links
-    print("=== Setup: bulk_add_predecessors ===")
-    links = [
-        {"successor_unique_id": task_uids["Build Work"], "predecessor_unique_id": task_uids["Design Work"], "link_type": "FS"},
-        {"successor_unique_id": task_uids["Go-Live Milestone"], "predecessor_unique_id": task_uids["Build Work"], "link_type": "FS"},
-        {"successor_unique_id": task_uids["Execution"], "predecessor_unique_id": task_uids["Planning"], "link_type": "FS"},
-    ]
-    await call("bulk_add_predecessors", {"links_json": json.dumps(links)})
-    print("  Links: 3 added")
-
-    # Set RAG on some tasks
-    print("=== Setup: bulk_update_rag ===")
-    rag_updates = [
-        {"unique_id": task_uids["Design Work"], "rag": "Green"},
-        {"unique_id": task_uids["Build Work"], "rag": "Amber"},
-        {"unique_id": task_uids["Testing"], "rag": "Red"},
-        {"unique_id": task_uids["Planning"], "rag": "Green"},
-    ]
-    await call("bulk_update_rag", {"updates": json.dumps(rag_updates)})
-    print("  RAG set on 4 tasks")
+    main_project_name, task_uids = await setup_project()
 
     # ===================================================================
     # Test 1: list_projects
@@ -313,221 +240,11 @@ async def run_tests():
         print(f"  FAIL: {e}")
         results["update_custom_fields"] = "FAIL"
 
-    # ===================================================================
-    # Test 8: get_custom_field_values
-    # ===================================================================
-    print("\n=== Test 8: get_custom_field_values ===")
-    try:
-        # Query Text1 (RAG field) — should have Green, Amber, Red from setup
-        r = await call("get_custom_field_values", {"field_name": "Text1"})
-        assert r["total_tasks"] > 0, "No tasks found"
-        print(f"  Text1 values: {r['unique_values']}")
-        print(f"  Counts: {r['value_counts']}")
-        # We set Green, Amber, Red — at least those should exist
-        for rag in ["Green", "Amber", "Red"]:
-            assert rag in r["value_counts"], f"Missing '{rag}' in Text1 values"
-        print("  Verified: Green, Amber, Red all present")
-
-        results["get_custom_field_values"] = "PASS"
-    except Exception as e:
-        print(f"  FAIL: {e}")
-        results["get_custom_field_values"] = "FAIL"
-
-    # ===================================================================
-    # Test 9: validate_schedule
-    # ===================================================================
-    print("\n=== Test 9: validate_schedule ===")
-    try:
-        r = await call("validate_schedule")
-        assert "health_score" in r, "Missing health_score"
-        assert "issues" in r, "Missing issues"
-        assert r["summary"]["total_tasks"] > 0, "No tasks found"
-        print(f"  Health score: {r['health_score']}")
-        print(f"  Total tasks: {r['summary']['total_tasks']}, Total issues: {r['summary']['total_issues']}")
-        for cat, data in r["issues"].items():
-            if data["count"] > 0:
-                print(f"    {cat}: {data['count']}")
-
-        # We have tasks without resources (like Planning, Execution) — verify detection
-        assert r["issues"]["no_resources"]["count"] > 0, "Should detect tasks without resources"
-        print(f"  Verified: no_resources detected ({r['issues']['no_resources']['count']})")
-
-        results["validate_schedule"] = "PASS"
-    except Exception as e:
-        print(f"  FAIL: {e}")
-        results["validate_schedule"] = "FAIL"
-
-    # ===================================================================
-    # Test 10: get_milestone_report
-    # ===================================================================
-    print("\n=== Test 10: get_milestone_report ===")
-    try:
-        r = await call("get_milestone_report", {"days_ahead": 365, "upcoming_count": 5})
-        assert r["total_milestones"] >= 1, f"Expected >= 1 milestone, got {r['total_milestones']}"
-        print(f"  Total milestones: {r['total_milestones']}")
-        print(f"  By status: {r['by_status']}")
-        if r["upcoming"]:
-            print(f"  Upcoming: {r['upcoming'][0]['name']} ({r['upcoming'][0]['finish']})")
-        results["get_milestone_report"] = "PASS"
-    except Exception as e:
-        print(f"  FAIL: {e}")
-        results["get_milestone_report"] = "FAIL"
-
-    # ===================================================================
-    # Test 11: get_resource_workload
-    # ===================================================================
-    print("\n=== Test 11: get_resource_workload ===")
-    try:
-        r = await call("get_resource_workload", {"resource_name": "Alice"})
-        assert len(r["assignments"]) >= 2, f"Alice should have >= 2 assignments, got {len(r['assignments'])}"
-        print(f"  Alice: {len(r['assignments'])} assignments, overallocated={r['overallocated']}")
-        for a in r["assignments"]:
-            print(f"    {a['task_name']}: {a['start']} - {a['finish']}")
-        if r["conflicts"]:
-            print(f"  Conflicts: {len(r['conflicts'])}")
-
-        # Test invalid resource
-        r2 = await call("get_resource_workload", {"resource_name": "NONEXISTENT"})
-        assert "error" in r2, "Expected error for invalid resource"
-        print("  Invalid resource handled correctly")
-
-        results["get_resource_workload"] = "PASS"
-    except Exception as e:
-        print(f"  FAIL: {e}")
-        results["get_resource_workload"] = "FAIL"
-
-    # ===================================================================
-    # Test 12: level_resources
-    # ===================================================================
-    print("\n=== Test 12: level_resources ===")
-    try:
-        r = await call("level_resources")
-        assert r["status"] == "leveled", f"Expected leveled, got {r}"
-        print(f"  Leveled project: {r['project']}")
-        results["level_resources"] = "PASS"
-    except Exception as e:
-        print(f"  FAIL: {e}")
-        results["level_resources"] = "FAIL"
-
-    # ===================================================================
-    # Test 13: set_deadline
-    # ===================================================================
-    print("\n=== Test 13: set_deadline ===")
-    try:
-        uid = task_uids["Build Work"]
-        # Set deadline
-        r = await call("set_deadline", {"unique_id": uid, "deadline_date": "2026-07-15"})
-        assert r["status"] == "set", f"Expected set, got {r}"
-        assert r["deadline"] == "2026-07-15"
-        print(f"  Set deadline on '{r['name']}': {r['deadline']}, missed={r['deadline_missed']}")
-
-        # Set a tight deadline that should be missed
-        r = await call("set_deadline", {"unique_id": uid, "deadline_date": "2026-04-01"})
-        print(f"  Tight deadline: missed={r['deadline_missed']}")
-
-        # Clear deadline
-        r = await call("set_deadline", {"unique_id": uid, "deadline_date": "clear"})
-        assert r["status"] == "cleared", f"Expected cleared, got {r}"
-        print("  Deadline cleared")
-
-        results["set_deadline"] = "PASS"
-    except Exception as e:
-        print(f"  FAIL: {e}")
-        results["set_deadline"] = "FAIL"
-
-    # ===================================================================
-    # Test 14: set_task_active
-    # ===================================================================
-    print("\n=== Test 14: set_task_active ===")
-    try:
-        uid = task_uids["Execution"]
-        # Deactivate
-        r = await call("set_task_active", {"unique_id": uid, "active": False})
-        assert r["status"] == "updated", f"Expected updated, got {r}"
-        assert r["active"] is False, "Task should be inactive"
-        print(f"  Deactivated '{r['name']}'")
-
-        # Verify via get_task
-        t = await call("get_task", {"unique_id": uid})
-        assert t["active"] is False, f"get_task shows active={t['active']}, expected False"
-        print(f"  Verified: active={t['active']}")
-
-        # Reactivate
-        r = await call("set_task_active", {"unique_id": uid, "active": True})
-        assert r["active"] is True, "Task should be active"
-        print(f"  Reactivated '{r['name']}'")
-
-        results["set_task_active"] = "PASS"
-    except Exception as e:
-        print(f"  FAIL: {e}")
-        results["set_task_active"] = "FAIL"
-
-    # ===================================================================
-    # Test 15: dry_run_bulk_update
-    # ===================================================================
-    print("\n=== Test 15: dry_run_bulk_update ===")
-    try:
-        updates = [
-            {"unique_id": task_uids["Design Work"], "rag": "Red", "percent_complete": 50},
-            {"unique_id": task_uids["Build Work"], "name": "Construction Phase"},
-            {"unique_id": 999999, "rag": "Green"},  # non-existent
-        ]
-        r = await call("dry_run_bulk_update", {"updates_json": json.dumps(updates)})
-        assert r["preview"] is True, "Should be a preview"
-        assert r["total_tasks_affected"] >= 2, f"Expected >= 2 affected, got {r['total_tasks_affected']}"
-        assert 999999 in r["not_found"], "Should report 999999 as not found"
-        print(f"  Preview: {r['total_changes']} changes across {r['total_tasks_affected']} tasks")
-        print(f"  Not found: {r['not_found']}")
-
-        # Verify NO actual mutation happened
-        t = await call("get_task", {"unique_id": task_uids["Design Work"]})
-        assert t["rag"] != "Red" or t["rag"] == "Green", "Design Work RAG should NOT have changed from dry run"
-        assert t["percent_complete"] == 0, f"Design Work % should still be 0, got {t['percent_complete']}"
-        print(f"  Verified: no mutation occurred (RAG={t['rag']}, %={t['percent_complete']})")
-
-        t2 = await call("get_task", {"unique_id": task_uids["Build Work"]})
-        assert t2["name"] == "Build Work", f"Build Work name should NOT have changed, got '{t2['name']}'"
-        print(f"  Verified: Build Work name unchanged ('{t2['name']}')")
-
-        results["dry_run_bulk_update"] = "PASS"
-    except Exception as e:
-        print(f"  FAIL: {e}")
-        results["dry_run_bulk_update"] = "FAIL"
-
-    # ===================================================================
-    # Summary
-    # ===================================================================
-    print("\n" + "=" * 50)
-    print("FILTERING AND MULTI-PROJECT TEST SUMMARY")
-    print("=" * 50)
-    passed = failed = 0
-    for name, status in results.items():
-        print(f"  [{status:4s}] {name}")
-        if status == "PASS":
-            passed += 1
-        else:
-            failed += 1
-    print(f"\n  {passed} passed, {failed} failed / {len(results)} total")
-
-    # Cleanup: close all test projects
-    print("\nCleaning up...")
-    # Close projects in reverse order to avoid index shifts
-    for _ in range(5):  # max 5 attempts
-        try:
-            r = await call("list_projects")
-            if r["count"] == 0:
-                break
-            await call("close_project", {"save": False})
-            print(f"  Closed a project ({r['count']-1} remaining)")
-        except Exception:
-            break
-    print("Cleanup complete.")
-
-    return failed == 0
+    return await finish(results, "FILTERING AND MULTI-PROJECT TEST SUMMARY")
 
 
 def test_filtering_multiproject_live():
-    """Run the live filtering and multi-project scenario; any failed check fails the test."""
+    """Run the live scenario; any failed check fails the test."""
     assert asyncio.run(run_tests())
 
 

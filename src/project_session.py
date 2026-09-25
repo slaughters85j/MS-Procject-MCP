@@ -11,79 +11,19 @@ NOTE: Testing remains required — MS Project not available on build machine.
 import os
 import logging
 import atexit
-from dataclasses import dataclass
-from enum import Enum
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# Canonical MS Project process names for collision detection.
-# Used by both psutil and tasklist paths to ensure consistency.
-PROJECT_PROCESS_NAMES = ("WINPROJ.EXE",)
+# Types and process detection live in session_model; re-exported for existing imports.
+# attach()/ensure_attached() call _find_existing_project_processes through this module's
+# namespace so tests can patch src.project_session._find_existing_project_processes.
+from .session_lifecycle import SessionLifecycleMixin  # noqa: E402
+from .session_model import (  # noqa: F401,E402
+    PROJECT_PROCESS_NAMES, SessionState, SessionInfo, _find_existing_project_processes, connect_app,
+)
 
-
-class SessionState(Enum):
-    """Lifecycle states for the Project COM session."""
-    DETACHED = "detached"
-    ATTACHING = "attaching"
-    ATTACHED = "attached"
-    DETACHING = "detaching"
-    ERROR = "error"
-
-
-@dataclass
-class SessionInfo:
-    """Snapshot of current session state for the session_info tool."""
-    state: str
-    owner_pid: int
-    project_path: Optional[str]
-    project_count: int
-    we_launched: bool
-    com_class: str = "MSProject.Application"
-
-
-def _find_existing_project_processes() -> list[int]:
-    """
-    Detect running WINPROJ.EXE processes.
-
-    Uses psutil if available, falls back to tasklist on Windows.
-    Returns a list of PIDs.
-    """
-    pids: list[int] = []
-
-    # Try psutil first (cross-platform, reliable)
-    try:
-        import psutil
-        for proc in psutil.process_iter(["name", "pid"]):
-            if proc.info["name"] and proc.info["name"].upper() in PROJECT_PROCESS_NAMES:
-                pids.append(proc.info["pid"])
-        return pids
-    except ImportError:
-        pass
-
-    # Fallback: tasklist on Windows
-    try:
-        import subprocess
-        for proc_name in PROJECT_PROCESS_NAMES:
-            result = subprocess.run(
-                ["tasklist", "/FI", f"IMAGENAME eq {proc_name}", "/FO", "CSV", "/NH"],
-                capture_output=True, text=True, timeout=5
-            )
-            for line in result.stdout.strip().splitlines():
-                parts = line.strip('"').split('","')
-                if len(parts) >= 2:
-                    try:
-                        pids.append(int(parts[1]))
-                    except ValueError:
-                        continue
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        # Not on Windows or tasklist unavailable
-        pass
-
-    return pids
-
-
-class ProjectSession:
+class ProjectSession(SessionLifecycleMixin):
     """
     Manages a single MS Project COM connection with explicit lifecycle.
 
@@ -237,47 +177,7 @@ class ProjectSession:
                     "allow_attach_existing=True to attach anyway."
                 )
 
-            if existing_pids:
-                # Attach to existing instance
-                logger.info(
-                    "Found existing Project process(es): %s — attaching",
-                    existing_pids,
-                )
-                try:
-                    # Use com_retry if available for transient busy errors
-                    try:
-                        from src.com_retry import com_call
-                        self._app = com_call(
-                            lambda: win32com.client.GetActiveObject(
-                                "MSProject.Application"
-                            ),
-                            label="Session.GetActiveObject",
-                        )
-                    except ImportError:
-                        self._app = win32com.client.GetActiveObject(
-                            "MSProject.Application"
-                        )
-                    self._we_launched = False
-                except Exception as e:
-                    logger.warning(
-                        "GetActiveObject failed despite running process "
-                        "(PID %s): %s. This usually means the server is "
-                        "running elevated (admin) or in a different logon "
-                        "session than MS Project. Falling back to Dispatch.",
-                        existing_pids, e,
-                    )
-                    # Process exists but COM binding failed — try Dispatch
-                    self._app = win32com.client.Dispatch(
-                        "MSProject.Application"
-                    )
-                    self._we_launched = True
-            else:
-                # No existing instance — launch fresh
-                logger.info("No existing Project instance — launching new one")
-                self._app = win32com.client.Dispatch(
-                    "MSProject.Application"
-                )
-                self._we_launched = True
+            self._app, self._we_launched = connect_app(win32com.client, existing_pids)
 
             # Configure visibility. Only an instance we launched may be hidden: hiding a
             # user's own Project window mid-session would take it away from them.
@@ -310,53 +210,7 @@ class ProjectSession:
             raise RuntimeError(f"Failed to attach to MS Project: {e}") from e
 
     # ------------------------------------------------------------------
-    # Lifecycle: detach
-    # ------------------------------------------------------------------
-
-    def detach(self) -> None:
-        """
-        Release the COM connection to MS Project.
-
-        If we launched Project and quit_on_detach is True, quit the app.
-        Otherwise just release the COM reference.
-        """
-        if self._state == SessionState.DETACHED:
-            logger.warning("Already detached — ignoring duplicate detach()")
-            return
-
-        self._state = SessionState.DETACHING
-        logger.info("Detaching from MS Project...")
-
-        try:
-            if self._app is not None:
-                if self._we_launched and self._quit_on_detach:
-                    try:
-                        logger.info("Quitting Project (we launched it)")
-                        self._app.Quit(0)  # 0 = pjDoNotSave
-                    except Exception as e:
-                        logger.warning("Quit failed (may already be closed): %s", e)
-
-                # Release the COM reference
-                try:
-                    del self._app
-                except Exception as e:
-                    logger.warning("COM release error: %s", e)
-
-            # Balance the CoInitialize() from attach()
-            try:
-                import pythoncom
-                pythoncom.CoUninitialize()
-            except Exception as e:
-                logger.warning("CoUninitialize error: %s", e)
-
-        finally:
-            self._app = None
-            self._project_path = None
-            self._state = SessionState.DETACHED
-            logger.info("Detached from MS Project")
-
-    # ------------------------------------------------------------------
-    # Info
+    # Auto-attach
     # ------------------------------------------------------------------
 
     def ensure_attached(self) -> bool:
@@ -378,27 +232,6 @@ class ProjectSession:
             logger.debug("Auto-attach failed: %s", e)
         return self.is_attached
 
-    def get_info(self) -> SessionInfo:
-        """Return a snapshot of current session state."""
-        project_count = 0
-        project_path = self._project_path
-
-        if self._state == SessionState.ATTACHED and self._app is not None:
-            try:
-                project_count = self._app.Projects.Count
-                if project_count > 0:
-                    project_path = self._app.ActiveProject.FullName
-            except Exception:
-                pass
-
-        return SessionInfo(
-            state=self._state.value,
-            owner_pid=self._owner_pid,
-            project_path=project_path,
-            project_count=project_count,
-            we_launched=self._we_launched,
-        )
-
     # ------------------------------------------------------------------
     # Context manager
     # ------------------------------------------------------------------
@@ -410,35 +243,6 @@ class ProjectSession:
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.detach()
         return False  # Don't suppress exceptions
-
-    # ------------------------------------------------------------------
-    # Internal
-    # ------------------------------------------------------------------
-
-    def _atexit_cleanup(self) -> None:
-        """
-        Best-effort cleanup on process exit.
-
-        An instance this server launched is usually hidden; left running it would be an
-        invisible orphan the user cannot close. Quit it when everything in it is saved;
-        if anything is unsaved, show it instead so no work is discarded.
-        """
-        if self._state != SessionState.ATTACHED:
-            return
-        logger.info("atexit: cleaning up COM session")
-        try:
-            if self._we_launched and self._app is not None:
-                app = self._app
-                unsaved = [app.Projects(i).Name for i in range(1, app.Projects.Count + 1)
-                           if not app.Projects(i).Saved]
-                if unsaved:
-                    logger.warning("atexit: leaving launched Project open and visible (unsaved: %s)", unsaved)
-                    app.Visible = True
-                else:
-                    self._quit_on_detach = True
-            self.detach()
-        except Exception as e:
-            logger.warning("atexit cleanup failed: %s", e)
 
 
 # ---------------------------------------------------------------------------

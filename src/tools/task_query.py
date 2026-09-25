@@ -4,7 +4,7 @@ Read-only task lookups: paged task lists, single tasks, RAG, overdue, per-resour
 
 import json
 
-from ..com_helpers import get_app, get_proj, task_to_dict, _to_naive, is_overdue, assigned_resource_names
+from ..com_helpers import get_app, get_proj, task_to_dict, is_overdue, assigned_resource_names
 from ..com_write import validate_rag
 from ..guards import prepare_task_response, DEFAULT_PAGE_LIMIT, _RESPONSE_MGMT
 

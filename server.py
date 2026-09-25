@@ -56,7 +56,9 @@ CORE_TOOL_MODULES = (
     ("src.tools.progress", "register_progress_tools"),
     ("src.tools.cost", "register_cost_tools"),
     ("src.tools.schedule_analysis", "register_schedule_analysis_tools"),
+    ("src.tools.milestones", "register_milestone_tools"),
     ("src.tools.critical_path", "register_critical_path_tools"),
+    ("src.tools.what_if", "register_what_if_tools"),
     ("src.tools.meta", "register_meta_tools"),
 )
 

@@ -4,7 +4,7 @@ Progress reporting: summary, WBS roll-up, WBS structure, and actual work.
 
 import json
 
-from ..com_helpers import get_app, get_proj, _get_mpd, _fmt_date, _to_naive, is_overdue
+from ..com_helpers import get_app, get_proj, _get_mpd, _fmt_date, is_overdue
 from ..guards import format_response, _RESPONSE_MGMT
 
 
