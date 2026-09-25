@@ -20,9 +20,14 @@ pip install -e .
 
 # With dev dependencies (pytest, coverage)
 pip install -e ".[dev]"
+
+# Optional: the mpxj_read_* tools, which read a saved .mpp from disk without MS Project
+pip install -e ".[mpxj]"
 ```
 
 This gives you the `msproject-mcp` console script, so you don't need absolute paths in your MCP client config.
+
+The `mpxj` extra needs MPXJ 14 or later and a Java runtime (Java 8 or later, for example Eclipse Temurin). If Java is not registered system-wide (a zip install), set `JAVA_HOME` in the server's environment. Without them the `mpxj_read_*` tools return an `MpxjNotAvailableError` and every other tool keeps working.
 
 ## Quick Start
 
@@ -148,7 +153,7 @@ python tests/fixtures/generate_fixtures.py
 pytest tests/integration/ -v
 ```
 
-Unit tests in `tests/` mock COM and mpxj, so they run on any platform. `tests/integration/` holds the live tests: per-module COM tests for the hardening modules, plus tool-level scenario tests (`*_live.py`) that drive the MCP tools end to end against a real MS Project. They skip automatically when MS Project is not available, and `tests/fixtures/generate_fixtures.py` builds the fictional `.mpp` fixtures they use. The integration tests start their own hidden Project instance and quit it afterwards, so they refuse to run (skip) while you have Project open; they never attach to or close your session.
+Unit tests in `tests/` mock COM and mpxj, so they run on any platform. `tests/integration/` holds the live tests: per-module COM tests for the hardening modules, plus tool-level scenario tests (`*_live.py`) that drive the MCP tools end to end against a real MS Project. They skip automatically when MS Project is not available, and `tests/fixtures/generate_fixtures.py` builds the fictional `.mpp` fixtures they use. The integration tests start their own hidden Project instance and quit it afterwards, so they refuse to run (skip) while you have Project open; they never attach to or close your session. `test_mpxj_live.py` also needs the `mpxj` extra and Java (see Installation) and skips without them.
 
 ### Branch Structure
 

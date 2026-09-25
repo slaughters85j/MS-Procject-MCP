@@ -210,6 +210,9 @@ Before any work package begins:
 - Correct Project enums from the type library (calculation, baselines, UpdateProject, timescales, link types, custom field IDs)
 - Task edits via COM objects instead of view rows; move/copy verify the selection before cut/copy
 - Integration fixtures never attach to (or quit) a user's running Project
+- `ProjectSession.detach()` waits for a Project it launched to exit after Quit, so a dying instance is never adopted by the next attach (the cause of a leaked hidden instance)
+- mpxj fast-read path works against MPXJ 14+ (`org.mpxj` classes via `jpype.JClass`); numbers keep their decimals, enums/Priority/Rate convert properly, predecessors carry the linked task, resource work and cost are summed from assignments, and resource-less placeholder assignments are skipped. Verified live against Project by `tests/integration/test_mpxj_live.py`
+- Every `.py` file kept at 300 lines or fewer
 
 ---
 

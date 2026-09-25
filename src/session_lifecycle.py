@@ -4,7 +4,7 @@ Detach, session info, and process-exit cleanup for ProjectSession (mixed into th
 
 import logging
 
-from .session_model import SessionInfo, SessionState
+from .session_model import SessionInfo, SessionState, wait_for_exit
 
 logger = logging.getLogger(__name__)
 
@@ -30,12 +30,14 @@ class SessionLifecycleMixin:
         self._state = SessionState.DETACHING
         logger.info("Detaching from MS Project...")
 
+        quitting = False
         try:
             if self._app is not None:
                 if self._we_launched and self._quit_on_detach:
                     try:
                         logger.info("Quitting Project (we launched it)")
                         self._app.Quit(0)  # 0 = pjDoNotSave
+                        quitting = True
                     except Exception as e:
                         logger.warning("Quit failed (may already be closed): %s", e)
 
@@ -44,6 +46,11 @@ class SessionLifecycleMixin:
                     del self._app
                 except Exception as e:
                     logger.warning("COM release error: %s", e)
+
+            # Return only once the process is gone: a dying instance found by the next attach
+            # cannot be bound (GetActiveObject fails) and is never quit by anyone.
+            if quitting and self._launched_pids:
+                wait_for_exit(self._launched_pids)
 
             # Balance the CoInitialize() from attach()
             try:
@@ -54,6 +61,7 @@ class SessionLifecycleMixin:
 
         finally:
             self._app = None
+            self._launched_pids = set()
             self._project_path = None
             self._state = SessionState.DETACHED
             logger.info("Detached from MS Project")

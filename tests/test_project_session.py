@@ -84,6 +84,25 @@ class TestSessionLifecycle:
             assert fresh_session.state == SessionState.DETACHED
             assert not fresh_session.is_attached
 
+    def test_detach_waits_for_the_process_it_launched(self, mock_com):
+        """After Quit, detach returns only once the launched WINPROJ.EXE has exited."""
+        session = ProjectSession(quit_on_detach=True)
+        with patch("src.project_session._find_existing_project_processes", side_effect=[[], [4321]]), \
+                patch("src.session_lifecycle.wait_for_exit") as wait:
+            session.attach()
+            session.detach()
+        mock_com.Quit.assert_called_once_with(0)
+        wait.assert_called_once_with({4321})
+
+    def test_detach_does_not_wait_for_an_adopted_instance(self, mock_com):
+        session = ProjectSession(quit_on_detach=True)
+        with patch("src.project_session._find_existing_project_processes", return_value=[1234]), \
+                patch("src.session_lifecycle.wait_for_exit") as wait:
+            session.attach()
+            session.detach()
+        mock_com.Quit.assert_not_called()
+        wait.assert_not_called()
+
     def test_double_attach_is_noop(self, fresh_session, mock_com):
         with patch(
             "src.project_session._find_existing_project_processes",

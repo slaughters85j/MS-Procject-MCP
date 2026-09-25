@@ -116,10 +116,11 @@ def _make_mock_calendar(uid=1, name="Standard"):
 
 
 def _make_java_list(items):
-    """Create a mock Java List with .size() and .get(i)."""
+    """Create a mock Java List with .size(), .get(i) and Python iteration (as jpype provides)."""
     jlist = MagicMock()
     jlist.size.return_value = len(items)
     jlist.get.side_effect = lambda i: items[i]
+    jlist.__iter__.side_effect = lambda: iter(items)
     return jlist
 
 

@@ -103,6 +103,18 @@ class TestReadAssignments:
         assert len(assignments) == 1
         assert source["entity_type"] == "assignments"
 
+    @patch("src.mpxj_reader._open_project")
+    def test_skips_resourceless_placeholder(self, mock_open, tmp_mpp):
+        """The .mpp stores a resource-less assignment per task; Project never lists it."""
+        placeholder = _make_mock_assignment(uid=2)
+        placeholder.getResource.return_value = None
+        mock_open.return_value = _make_mock_project(assignments=[_make_mock_assignment(), placeholder])
+
+        assignments, _ = read_assignments(tmp_mpp)
+        info, _ = read_project_info(tmp_mpp)
+        assert [a["unique_id"] for a in assignments] == [1]
+        assert info["assignment_count"] == 1
+
 
 class TestReadCalendars:
     @patch("src.mpxj_reader._open_project")

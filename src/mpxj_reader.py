@@ -23,10 +23,8 @@ object-to-dict converters in mpxj_convert.
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
-from .mpxj_convert import (
-    _assignment_to_dict, _calendar_to_dict, _project_properties_to_dict, _resource_to_dict,
-    _task_to_dict,
-)
+from .mpxj_convert import _assignment_to_dict, _resource_to_dict, _task_to_dict
+from .mpxj_project_convert import _calendar_to_dict, _project_properties_to_dict
 from .mpxj_jvm import (
     MpxjError, MpxjFileError, MpxjNotAvailableError, MpxjParseError, _open_project,
     _validate_file, is_mpxj_available,
@@ -48,6 +46,26 @@ __all__ = [
 
 
 # ---------------------------------------------------------------------------
+# What Project itself lists
+# ---------------------------------------------------------------------------
+
+def _listed_tasks(project) -> list:
+    """Tasks without the project summary task (ID 0), which is a container, not a task."""
+    return [t for t in project.getTasks() if _java_to_python(t.getID()) != 0]
+
+
+def _listed_resources(project) -> list:
+    """Resources without the blank resource (ID 0) that every .mpp carries."""
+    return [r for r in project.getResources() if _java_to_python(r.getID()) != 0]
+
+
+def _listed_assignments(project) -> list:
+    """Assignments that have a resource. The .mpp also stores a resource-less placeholder
+    for every task, which Project never shows as an assignment."""
+    return [a for a in project.getResourceAssignments() if a.getResource() is not None]
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
@@ -60,16 +78,8 @@ def read_tasks(file_path: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     resolved = _validate_file(file_path)
     project = _open_project(resolved)
 
-    tasks = []
     try:
-        all_tasks = project.getTasks()
-        for i in range(all_tasks.size()):
-            task = all_tasks.get(i)
-            # Skip the project summary task (ID 0) — it's a container, not a real task
-            task_id = _java_to_python(task.getID())
-            if task_id == 0:
-                continue
-            tasks.append(_task_to_dict(task))
+        tasks = [_task_to_dict(t) for t in _listed_tasks(project)]
     except Exception as exc:
         raise MpxjParseError(
             f"Failed to extract tasks from {file_path!r}: {exc}"
@@ -87,16 +97,9 @@ def read_resources(file_path: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
     resolved = _validate_file(file_path)
     project = _open_project(resolved)
 
-    resources = []
     try:
-        all_resources = project.getResources()
-        for i in range(all_resources.size()):
-            resource = all_resources.get(i)
-            # Skip the dummy resource (ID 0)
-            res_id = _java_to_python(resource.getID())
-            if res_id == 0:
-                continue
-            resources.append(_resource_to_dict(resource))
+        props = project.getProjectProperties()
+        resources = [_resource_to_dict(r, props) for r in _listed_resources(project)]
     except Exception as exc:
         raise MpxjParseError(
             f"Failed to extract resources from {file_path!r}: {exc}"
@@ -114,12 +117,8 @@ def read_assignments(file_path: str) -> Tuple[List[Dict[str, Any]], Dict[str, An
     resolved = _validate_file(file_path)
     project = _open_project(resolved)
 
-    assignments = []
     try:
-        all_assignments = project.getResourceAssignments()
-        for i in range(all_assignments.size()):
-            asn = all_assignments.get(i)
-            assignments.append(_assignment_to_dict(asn))
+        assignments = [_assignment_to_dict(a) for a in _listed_assignments(project)]
     except Exception as exc:
         raise MpxjParseError(
             f"Failed to extract assignments from {file_path!r}: {exc}"
@@ -137,12 +136,8 @@ def read_calendars(file_path: str) -> Tuple[List[Dict[str, Any]], Dict[str, Any]
     resolved = _validate_file(file_path)
     project = _open_project(resolved)
 
-    calendars = []
     try:
-        all_calendars = project.getCalendars()
-        for i in range(all_calendars.size()):
-            cal = all_calendars.get(i)
-            calendars.append(_calendar_to_dict(cal))
+        calendars = [_calendar_to_dict(c) for c in project.getCalendars()]
     except Exception as exc:
         raise MpxjParseError(
             f"Failed to extract calendars from {file_path!r}: {exc}"
@@ -168,23 +163,14 @@ def read_project_info(file_path: str) -> Tuple[Dict[str, Any], Dict[str, Any]]:
             f"Failed to extract project properties from {file_path!r}: {exc}"
         ) from exc
 
-    # Also add summary counts
-    try:
-        info["task_count"] = project.getTasks().size()
-    except Exception:
-        pass
-    try:
-        info["resource_count"] = project.getResources().size()
-    except Exception:
-        pass
-    try:
-        info["assignment_count"] = project.getResourceAssignments().size()
-    except Exception:
-        pass
-    try:
-        info["calendar_count"] = project.getCalendars().size()
-    except Exception:
-        pass
+    # Summary counts, matching what read_tasks/read_resources/... return
+    for key, listed in (("task_count", _listed_tasks), ("resource_count", _listed_resources),
+                        ("assignment_count", _listed_assignments),
+                        ("calendar_count", lambda p: list(p.getCalendars()))):
+        try:
+            info[key] = len(listed(project))
+        except Exception:
+            pass
 
     source = _source_metadata(resolved, "project_info", 1)
     return info, source

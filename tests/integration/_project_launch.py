@@ -44,6 +44,28 @@ def _launch_project(attempts=3, delay=2.0):
             time.sleep(delay * (attempt + 1))
     raise last
 
+
+def _running_project_pids():
+    """PIDs of every running WINPROJ.EXE. The fixtures refuse to start while Project is already
+    running, so right after _launch_project these are exactly the instance they launched."""
+    from src.session_model import _find_existing_project_processes
+    return set(_find_existing_project_processes())
+
+
+def _quit_and_wait(app, pids):
+    """Quit a launched instance and wait for its process to exit; force-kill only those PIDs
+    if they hang, so the next test never finds a dying Project."""
+    from src.session_model import wait_for_exit
+    try:
+        app.Quit(0)  # 0 = pjDoNotSave
+    except Exception as e:
+        logger.warning("Quit during teardown: %s", e)
+    if not wait_for_exit(pids):
+        for pid in pids:
+            subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True, timeout=5)
+        wait_for_exit(pids, timeout=5)
+
+
 def _check_project_available():
     """
     Probe whether MS Project COM automation works.
@@ -67,13 +89,14 @@ def _check_project_available():
     try:
         pythoncom.CoInitialize()
         app = _launch_project()
+        pids = _running_project_pids()
         app.Visible = False
         app.DisplayAlerts = False
         # Quick sanity: can we create a blank project?
         app.FileNew(SummaryInfo=False)
         count = app.Projects.Count
         app.FileClose(Save=0)
-        app.Quit(0)  # 0 = pjDoNotSave
+        _quit_and_wait(app, pids)
         del app
         pythoncom.CoUninitialize()
         if count < 1:

@@ -58,6 +58,7 @@ class ProjectSession(SessionLifecycleMixin):
         self._state = SessionState.DETACHED
         self._owner_pid = os.getpid()
         self._we_launched = False
+        self._launched_pids: set[int] = set()
         self._headless = headless
         self._allow_attach_existing = allow_attach_existing
         self._quit_on_detach = quit_on_detach
@@ -178,6 +179,9 @@ class ProjectSession(SessionLifecycleMixin):
                 )
 
             self._app, self._we_launched = connect_app(win32com.client, existing_pids)
+            # The process we started, so detach() can wait for it to exit after Quit.
+            self._launched_pids = (set(_find_existing_project_processes()) - set(existing_pids)
+                                   if self._we_launched else set())
 
             # Configure visibility. Only an instance we launched may be hidden: hiding a
             # user's own Project window mid-session would take it away from them.

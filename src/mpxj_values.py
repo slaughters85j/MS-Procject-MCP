@@ -37,95 +37,63 @@ def _format_duration(duration) -> Optional[Dict[str, Any]]:
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _number(value) -> Any:
+    """A number as int when it is whole, float otherwise (costs, rates and units keep decimals)."""
+    number = float(value)
+    return int(number) if number.is_integer() else number
+
+
 def _java_to_python(value) -> Any:
-    """Convert a Java boxed type (Integer, Double, etc.) to a Python native."""
-    if value is None:
-        return None
-    try:
-        # jpype boxed types have .value or can be cast
-        return value.intValue() if hasattr(value, 'intValue') else int(value)
-    except (TypeError, ValueError):
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return str(value)
+    """
+    Convert an mpxj/Java value to a JSON-friendly Python value. jpype boxes Integer as int and
+    Double as float; mpxj enums (ScheduleFrom, ...) print their numeric code, so use name();
+    Priority carries getValue(); a Rate becomes {"amount", "units"}.
+    """
+    if value is None or isinstance(value, (bool, str)):
+        return value
+    if isinstance(value, (int, float)):
+        return _number(value)
+    if hasattr(value, "name") and hasattr(value, "ordinal"):
+        return str(value.name())
+    if hasattr(value, "getAmount") and hasattr(value, "getUnits"):
+        return {"amount": _number(value.getAmount()), "units": str(value.getUnits())}
+    if hasattr(value, "getValue"):
+        return _java_to_python(value.getValue())
+    if hasattr(value, "doubleValue"):  # any other java.lang.Number
+        return _number(value.doubleValue())
+    return str(value)  # java.lang.String and anything else
 
 
-def _safe_set(result: dict, key: str, obj, getter_name: str) -> None:
-    """Safely call a getter and store the result if non-None."""
+def _safe_set(result: dict, key: str, obj, getter_name: str, convert=_java_to_python) -> None:
+    """Call obj.getter_name(), convert the value, and store it under key unless it is None.
+    A missing getter or a failing read leaves the key out."""
     try:
         getter = getattr(obj, getter_name, None)
         if getter is None:
             return
         value = getter()
         if value is not None:
-            result[key] = _java_to_python(value) if not isinstance(value, str) else str(value)
+            value = convert(value)
+        if value is not None:
+            result[key] = value
     except Exception:
         pass
 
 
 def _safe_set_date(result: dict, key: str, obj, getter_name: str) -> None:
-    """Safely call a date getter and format to ISO string."""
-    try:
-        getter = getattr(obj, getter_name, None)
-        if getter is None:
-            return
-        value = getter()
-        formatted = _format_java_date(value)
-        if formatted:
-            result[key] = formatted
-    except Exception:
-        pass
+    """_safe_set for a Java date, stored as an ISO-8601 string."""
+    _safe_set(result, key, obj, getter_name, _format_java_date)
 
 
 def _safe_set_duration(result: dict, key: str, obj, getter_name: str) -> None:
-    """Safely call a duration getter and format to dict."""
-    try:
-        getter = getattr(obj, getter_name, None)
-        if getter is None:
-            return
-        value = getter()
-        formatted = _format_duration(value)
-        if formatted:
-            result[key] = formatted
-    except Exception:
-        pass
-
-
-def _safe_set_number(result: dict, key: str, obj, getter_name: str) -> None:
-    """Safely call a numeric getter and store the value."""
-    try:
-        getter = getattr(obj, getter_name, None)
-        if getter is None:
-            return
-        value = getter()
-        if value is not None:
-            result[key] = _java_to_python(value)
-    except Exception:
-        pass
+    """_safe_set for an mpxj Duration, stored as {"amount", "units"}."""
+    _safe_set(result, key, obj, getter_name, _format_duration)
 
 
 def _safe_set_bool(result: dict, key: str, obj, getter_name: str) -> None:
-    """Safely call a boolean getter and store the value."""
-    try:
-        getter = getattr(obj, getter_name, None)
-        if getter is None:
-            return
-        value = getter()
-        if value is not None:
-            result[key] = bool(value)
-    except Exception:
-        pass
+    """_safe_set for a boolean flag."""
+    _safe_set(result, key, obj, getter_name, bool)
 
 
-def _safe_set_enum(result: dict, key: str, obj, getter_name: str) -> None:
-    """Safely call an enum getter and store as string."""
-    try:
-        getter = getattr(obj, getter_name, None)
-        if getter is None:
-            return
-        value = getter()
-        if value is not None:
-            result[key] = str(value)
-    except Exception:
-        pass
+# Numbers, enums, Priority and Rate all go through _java_to_python.
+_safe_set_number = _safe_set_enum = _safe_set

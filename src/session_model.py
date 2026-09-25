@@ -75,6 +75,18 @@ def _find_existing_project_processes() -> list[int]:
     return pids
 
 
+def wait_for_exit(pids, timeout: float = 20.0) -> bool:
+    """Wait until none of pids is a running Project process. Returns True if they all exited."""
+    import time
+    deadline = time.monotonic() + timeout
+    while set(pids) & set(_find_existing_project_processes()):
+        if time.monotonic() >= deadline:
+            logger.warning("Project process(es) %s still running %.0fs after Quit", pids, timeout)
+            return False
+        time.sleep(0.25)
+    return True
+
+
 def connect_app(win32com_client, existing_pids):
     """
     Attach to the running MS Project (when existing_pids is non-empty) or launch one.

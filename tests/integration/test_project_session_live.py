@@ -40,17 +40,16 @@ class TestSessionAttachDetach:
         assert session.state == SessionState.DETACHED
 
     def test_detach_quits_when_we_launched(self, com_init):
-        import time
         session = ProjectSession(
             headless=True,
             quit_on_detach=True,
         )
         session.attach()
         assert session._we_launched is True
+        assert session._launched_pids
         session.detach()
-        time.sleep(1.0)
 
-        # Project process should be gone
+        # detach() returns only once the launched process has exited
         pids = _find_existing_project_processes()
         assert len(pids) == 0, (
             f"Project still running after quit_on_detach: PIDs {pids}"

@@ -17,16 +17,15 @@ SKIP LOGIC:
 
 import os
 import sys
-import time
 import shutil
 import logging
-import subprocess
 import pytest
 
 logger = logging.getLogger(__name__)
 
 from ._project_launch import (  # noqa: E402
     _launch_project, _project_already_running, probe_state, _fixture_path,
+    _running_project_pids, _quit_and_wait,
 )
 
 
@@ -64,14 +63,11 @@ def _release_server_launched_project():
             app = session.app
             while app.Projects.Count > 0:
                 app.FileCloseEx(0)  # pjDoNotSave: scenario projects are scratch
-            app.Quit(0)  # configure() cannot change quit_on_detach while attached
+            # configure() cannot change quit_on_detach while attached. detach() then quits
+            # Project and waits for its process to exit, so the next test starts clean.
+            configured, session._quit_on_detach = session._quit_on_detach, True
             session.detach()
-            # Wait for WINPROJ.EXE to exit, or the next test's auto-attach would find the dying
-            # process, adopt it as "not ours", and never quit it.
-            from src.project_session import _find_existing_project_processes
-            deadline = time.time() + 20
-            while _find_existing_project_processes() and time.time() < deadline:
-                time.sleep(0.5)
+            session.configure(quit_on_detach=configured)
     except Exception as e:
         logger.warning("Releasing server-launched Project failed: %s", e)
 
@@ -105,9 +101,10 @@ def project_app(com_init):
     if _project_already_running():
         pytest.skip("MS Project is already running; refusing to attach to (and then quit) that instance.")
     app = _launch_project()
+    pids = _running_project_pids()
     app.Visible = False
     app.DisplayAlerts = False
-    logger.info("Launched MS Project (PID-scoped, invisible)")
+    logger.info("Launched MS Project (PID %s, invisible)", sorted(pids))
 
     yield app
 
@@ -123,35 +120,9 @@ def project_app(com_init):
     except Exception as e:
         logger.warning("Projects.Count during teardown: %s", e)
 
-    try:
-        app.Quit(0)  # pjDoNotSave
-    except Exception as e:
-        logger.warning("Quit during teardown: %s", e)
-
-    try:
-        del app
-    except Exception:
-        pass
-
-    # Brief pause to let the process fully exit
-    time.sleep(0.5)
-
-    # Hard-kill fallback: if Quit didn't work, force-terminate WINPROJ.EXE
-    try:
-        result = subprocess.run(
-            ["tasklist", "/FI", "IMAGENAME eq WINPROJ.EXE"],
-            capture_output=True, text=True, timeout=5
-        )
-        if "WINPROJ.EXE" in result.stdout:
-            logger.warning("WINPROJ.EXE still running after Quit — force-killing")
-            subprocess.run(
-                ["taskkill", "/IM", "WINPROJ.EXE", "/F"],
-                capture_output=True, timeout=5
-            )
-            time.sleep(0.5)
-    except Exception as e:
-        logger.warning("Hard-kill check failed (non-Windows?): %s", e)
-
+    # Quit, wait for the process to exit, and force-kill only this instance if it hangs
+    _quit_and_wait(app, pids)
+    del app
     logger.info("MS Project teardown complete")
 
 
@@ -229,8 +200,7 @@ def session_fixture(com_init):
     )
     session.attach()
     yield session
-    session.detach()
-    time.sleep(0.5)
+    session.detach()  # quits Project and waits for its process to exit
 
 
 @pytest.fixture(scope="function")

@@ -59,7 +59,10 @@ def _ensure_jvm() -> None:
         try:
             # mpxj bundles its own JARs; jpype finds the default JVM
             import mpxj  # noqa: F401 — import triggers JAR registration
-            jpype.startJVM()
+            # mpxj ships log4j-api without a provider; the simple context stops the
+            # "could not find a logging provider" ERROR line on stderr at startup.
+            jpype.startJVM(
+                "-Dlog4j2.loggerContextFactory=org.apache.logging.log4j.simple.SimpleLoggerContextFactory")
             logger.info("JVM started for mpxj fast-read path.")
         except Exception as exc:
             raise MpxjNotAvailableError(
@@ -132,23 +135,18 @@ def _open_project(file_path: str):
     """
     _ensure_jvm()
 
+    import jpype
     try:
-        from net.sf.mpxj.reader import UniversalProjectReader
-    except ImportError:
-        # Fallback: mpxj Python wrapper
-        try:
-            import mpxj as mpxj_pkg
-            reader = mpxj_pkg.ProjectReader()
-            return reader.read(file_path)
-        except Exception as exc:
-            raise MpxjParseError(
-                f"Failed to parse {file_path!r}: {exc}. "
-                f"The file may be corrupted or in an unsupported format."
-            ) from exc
+        # MPXJ 14 moved its classes from net.sf.mpxj to org.mpxj.
+        reader_class = jpype.JClass("org.mpxj.reader.UniversalProjectReader")
+    except Exception as exc:
+        raise MpxjNotAvailableError(
+            f"mpxj's UniversalProjectReader is not on the JVM classpath ({exc}). "
+            f"Install mpxj 14 or later: pip install 'msproject-mcp[mpxj]'"
+        ) from exc
 
     try:
-        reader = UniversalProjectReader()
-        project = reader.read(file_path)
+        project = reader_class().read(file_path)
         if project is None:
             raise MpxjParseError(
                 f"mpxj returned None for {file_path!r}. "

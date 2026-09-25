@@ -1,6 +1,6 @@
 """
-Converters from mpxj Task, Resource, ResourceAssignment, ProjectCalendar, and
-ProjectProperties objects to plain dicts.
+Converters from mpxj Task, Resource, and ResourceAssignment objects to plain dicts.
+Calendars and project properties are in mpxj_project_convert.
 """
 
 from typing import Any, Dict
@@ -88,13 +88,13 @@ def _task_to_dict(task) -> Dict[str, Any]:
                 rel = preds.get(i)
                 pred_info = {}
                 try:
-                    target = rel.getTargetTask()
-                    if target:
-                        pred_info["task_unique_id"] = _java_to_python(target.getUniqueID())
-                        pred_info["task_name"] = str(target.getName()) if target.getName() else None
+                    pred = rel.getPredecessorTask()  # MPXJ 13+; getTargetTask() was removed
+                    if pred:
+                        pred_info["task_unique_id"] = _java_to_python(pred.getUniqueID())
+                        pred_info["task_name"] = str(pred.getName()) if pred.getName() else None
                 except Exception:
                     pass
-                _safe_set_enum(pred_info, "type", rel, "getType")
+                _safe_set(pred_info, "type", rel, "getType", str)  # FS/SS/FF/SF, as the COM tools use
                 _safe_set_duration(pred_info, "lag", rel, "getLag")
                 if pred_info:
                     pred_list.append(pred_info)
@@ -125,8 +125,36 @@ def _task_to_dict(task) -> Dict[str, Any]:
 # Resource extraction
 # ---------------------------------------------------------------------------
 
-def _resource_to_dict(resource) -> Dict[str, Any]:
-    """Convert an mpxj Resource object to a plain dict."""
+def _resource_totals(resource, props) -> Dict[str, Any]:
+    """
+    Work and cost totals summed from the resource's assignments, as Project computes them.
+    Project does not store these rollups in the .mpp, so mpxj reads them as 0. props (the
+    ProjectProperties) converts every work value to hours. Returns {} when they cannot be
+    computed (the per-field reads then stand).
+    """
+    if props is None:
+        return {}
+    try:
+        import jpype
+        hours = jpype.JClass("org.mpxj.TimeUnit").HOURS
+        assignments = list(resource.getTaskAssignments())
+        totals = {}
+        for key, getter in (("work", "getWork"), ("actual_work", "getActualWork"),
+                            ("remaining_work", "getRemainingWork")):
+            durations = [getattr(a, getter)() for a in assignments]
+            amount = sum(float(d.convertUnits(hours, props).getDuration()) for d in durations if d is not None)
+            totals[key] = {"amount": amount, "units": str(hours)}
+        for key, getter in (("cost", "getCost"), ("actual_cost", "getActualCost")):
+            values = [getattr(a, getter)() for a in assignments]
+            totals[key] = _java_to_python(sum(float(v) for v in values if v is not None))
+        return totals
+    except Exception:
+        return {}
+
+
+def _resource_to_dict(resource, props=None) -> Dict[str, Any]:
+    """Convert an mpxj Resource object to a plain dict; with props, work and cost are the
+    totals of its assignments."""
     result = {}
 
     _safe_set(result, "unique_id", resource, "getUniqueID")
@@ -148,6 +176,8 @@ def _resource_to_dict(resource) -> Dict[str, Any]:
     _safe_set_duration(result, "work", resource, "getWork")
     _safe_set_duration(result, "actual_work", resource, "getActualWork")
     _safe_set_duration(result, "remaining_work", resource, "getRemainingWork")
+
+    result.update(_resource_totals(resource, props))
 
     _safe_set_date(result, "available_from", resource, "getAvailableFrom")
     _safe_set_date(result, "available_to", resource, "getAvailableTo")
@@ -202,95 +232,5 @@ def _assignment_to_dict(assignment) -> Dict[str, Any]:
     _safe_set_date(result, "start", assignment, "getStart")
     _safe_set_date(result, "finish", assignment, "getFinish")
     _safe_set_number(result, "percent_work_complete", assignment, "getPercentageWorkComplete")
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Calendar extraction
-# ---------------------------------------------------------------------------
-
-def _calendar_to_dict(calendar) -> Dict[str, Any]:
-    """Convert an mpxj ProjectCalendar to a plain dict."""
-    result = {}
-
-    _safe_set(result, "unique_id", calendar, "getUniqueID")
-    _safe_set(result, "name", calendar, "getName")
-
-    # Base calendar
-    try:
-        parent = calendar.getParent()
-        if parent and parent.getName():
-            result["base_calendar"] = str(parent.getName())
-    except Exception:
-        pass
-
-    # Working days
-    try:
-        from java.time import DayOfWeek
-        days = {}
-        for dow in DayOfWeek.values():
-            try:
-                day_type = calendar.getCalendarDayType(dow)
-                days[str(dow)] = str(day_type) if day_type else "DEFAULT"
-            except Exception:
-                pass
-        if days:
-            result["working_days"] = days
-    except Exception:
-        pass
-
-    # Exceptions
-    try:
-        exceptions = calendar.getCalendarExceptions()
-        if exceptions and exceptions.size() > 0:
-            exc_list = []
-            for i in range(exceptions.size()):
-                exc = exceptions.get(i)
-                exc_dict = {}
-                _safe_set(exc_dict, "name", exc, "getName")
-                _safe_set_date(exc_dict, "from_date", exc, "getFromDate")
-                _safe_set_date(exc_dict, "to_date", exc, "getToDate")
-                _safe_set_bool(exc_dict, "working", exc, "getWorking")
-                if exc_dict:
-                    exc_list.append(exc_dict)
-            if exc_list:
-                result["exceptions"] = exc_list
-    except Exception:
-        pass
-
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Project properties extraction
-# ---------------------------------------------------------------------------
-
-def _project_properties_to_dict(properties) -> Dict[str, Any]:
-    """Extract project-level properties to a dict."""
-    result = {}
-
-    _safe_set(result, "project_title", properties, "getProjectTitle")
-    _safe_set(result, "subject", properties, "getSubject")
-    _safe_set(result, "author", properties, "getAuthor")
-    _safe_set(result, "manager", properties, "getManager")
-    _safe_set(result, "company", properties, "getCompany")
-    _safe_set(result, "category", properties, "getCategory")
-    _safe_set(result, "comments", properties, "getComments")
-
-    _safe_set_date(result, "start_date", properties, "getStartDate")
-    _safe_set_date(result, "finish_date", properties, "getFinishDate")
-    _safe_set_date(result, "current_date", properties, "getCurrentDate")
-    _safe_set_date(result, "status_date", properties, "getStatusDate")
-    _safe_set_date(result, "creation_date", properties, "getCreationDate")
-    _safe_set_date(result, "last_saved", properties, "getLastSaved")
-
-    _safe_set(result, "schedule_from", properties, "getScheduleFrom")
-    _safe_set_number(result, "minutes_per_day", properties, "getMinutesPerDay")
-    _safe_set_number(result, "minutes_per_week", properties, "getMinutesPerWeek")
-    _safe_set_number(result, "days_per_month", properties, "getDaysPerMonth")
-
-    _safe_set(result, "default_calendar_name", properties, "getDefaultCalendarName")
-    _safe_set(result, "currency_symbol", properties, "getCurrencySymbol")
 
     return result

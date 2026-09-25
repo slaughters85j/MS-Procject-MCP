@@ -35,7 +35,7 @@ dependencies = [
 
 [project.optional-dependencies]
 mpxj = [
-    "mpxj>=0.0.1",
+    "mpxj>=14.0",
     "jpype1>=1.4",
 ]
 dev = [

@@ -5,13 +5,8 @@ Unit tests for the mpxj value helpers and object-to-dict converters, using mocke
 from unittest.mock import MagicMock
 
 from src.mpxj_values import _format_duration, _format_java_date, _java_to_python
-from src.mpxj_convert import (
-    _assignment_to_dict,
-    _calendar_to_dict,
-    _project_properties_to_dict,
-    _resource_to_dict,
-    _task_to_dict,
-)
+from src.mpxj_convert import _assignment_to_dict, _resource_to_dict, _task_to_dict
+from src.mpxj_project_convert import _calendar_to_dict, _project_properties_to_dict
 from tests.mpxj_fakes import (
     _make_mock_task,
     _make_mock_resource,
@@ -22,32 +17,74 @@ from tests.mpxj_fakes import (
 )
 
 
+class _JavaEnum:
+    """Shape of an mpxj enum such as ScheduleFrom, whose toString() is its numeric code."""
+    def __init__(self, name, code):
+        self._name, self._code = name, code
+
+    def name(self):
+        return self._name
+
+    def ordinal(self):
+        return self._code
+
+    def __str__(self):
+        return str(self._code)
+
+
+class _Priority:
+    def getValue(self):
+        return 700
+
+
+class _Rate:
+    def getAmount(self):
+        return 85.5
+
+    def getUnits(self):
+        return "h"
+
+
 class TestJavaToPython:
+    """jpype boxes java.lang.Integer as int and java.lang.Double as float."""
+
     def test_none_returns_none(self):
         assert _java_to_python(None) is None
-
-    def test_integer_with_intValue(self):
-        mock = MagicMock()
-        mock.intValue.return_value = 42
-        assert _java_to_python(mock) == 42
 
     def test_plain_int(self):
         assert _java_to_python(5) == 5
 
-    def test_fallback_to_float(self):
-        mock = MagicMock()
-        mock.intValue.side_effect = TypeError
-        mock.__float__ = MagicMock(return_value=3.14)
-        result = _java_to_python(mock)
-        assert result == 3.14
+    def test_fractional_double_keeps_decimals(self):
+        assert _java_to_python(1234.56) == 1234.56
+
+    def test_whole_double_becomes_int(self):
+        result = _java_to_python(100.0)
+        assert result == 100 and isinstance(result, int)
+
+    def test_bool_and_str_pass_through(self):
+        assert _java_to_python(True) is True
+        assert _java_to_python("Design") == "Design"
+
+    def test_enum_uses_name_not_numeric_code(self):
+        assert _java_to_python(_JavaEnum("START", 0)) == "START"
+
+    def test_priority_uses_value(self):
+        assert _java_to_python(_Priority()) == 700
+
+    def test_rate_becomes_amount_and_units(self):
+        assert _java_to_python(_Rate()) == {"amount": 85.5, "units": "h"}
+
+    def test_other_number_uses_double_value(self):
+        class BigDecimal:
+            def doubleValue(self):
+                return 2.25
+        assert _java_to_python(BigDecimal()) == 2.25
 
     def test_fallback_to_string(self):
-        mock = MagicMock()
-        mock.intValue.side_effect = TypeError
-        mock.__float__ = MagicMock(side_effect=TypeError)
-        mock.__str__ = MagicMock(return_value="fallback")
-        result = _java_to_python(mock)
-        assert result == "fallback"
+        class JavaString:
+            def __str__(self):
+                return "fallback"
+        assert _java_to_python(JavaString()) == "fallback"
 
 
 class TestFormatJavaDate:
@@ -117,7 +154,7 @@ class TestTaskToDict:
         pred_task.getName.return_value = "Predecessor"
 
         relation = MagicMock()
-        relation.getTargetTask.return_value = pred_task
+        relation.getPredecessorTask.return_value = pred_task
         relation.getType.return_value = "FS"
         relation.getLag.return_value = None
 
