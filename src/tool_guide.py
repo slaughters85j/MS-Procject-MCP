@@ -44,7 +44,7 @@ FAST READ PATH (mpxj):
   Install: pip install 'msproject-mcp[mpxj]' (requires JDK/JRE).
 
 ENVIRONMENT:
-  MSPROJECT_SAFE_ROOT   Directory all file tools are confined to (required).
+  MSPROJECT_SAFE_ROOT   Directory all file tools are confined to (unset = no confinement).
   MSPROJECT_DRY_RUN=1   Preview-only mode: every mutating tool returns a dry-run preview.
   MSPROJECT_AUTOSAVE=0  Do not save after each write (default: save), keeping undo history.
 
@@ -54,6 +54,7 @@ WRITES:
   Failures return isError with {"error", "error_type"}. Dates are YYYY-MM-DD;
   a date-only finish means the end of that working day.
   move_task and copy_task_structure assign NEW UniqueIDs (see uid_map in the response).
+  save_baseline / clear_baseline for specific tasks take unique_ids.
 
 HARDENING:
   ProjectSession manages COM lifecycle. Use session_info to check state.
@@ -75,7 +76,7 @@ _TOOL_GUIDE = {
         "Call calculate_project after bulk manual-schedule changes if auto-calc was suspended.",
         "Use dry_run_bulk_update to preview changes safely before bulk_update_tasks.",
         "undo_last only reaches back to the last save; with autosave on (default) every write saves. Set MSPROJECT_AUTOSAVE=0 to keep undo history.",
-        "MSPROJECT_SAFE_ROOT must be set before any file-taking tool will run.",
+        "File tools are confined to MSPROJECT_SAFE_ROOT when it is set (paths outside are refused).",
         "Set MSPROJECT_DRY_RUN=1 for read/preview-only mode (applies to every mutating tool).",
         "Pass project_id on writes to guarantee they land in the intended project.",
         "Check health_check to verify which hardening modules loaded successfully.",

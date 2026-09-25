@@ -15,6 +15,8 @@ FIELD_ATTR = {
     "priority": "Priority", "task_type": "Type", "start": "Start", "finish": "Finish",
 }
 UPDATABLE = tuple(FIELD_ATTR) + ("duration_days",)
+# Names reported in "changed", kept identical to what update_task has always returned.
+CHANGED_NAMES = {"task_type": "type", "rag": "rag/text1"}
 # Applied in this order: mode and type first so Project schedules the date writes correctly.
 WRITE_ORDER = ("manual", "task_type", "duration_days", "start", "finish", "name", "percent_complete",
                "priority", "rag", "text2", "text3", "notes", "flag1", "flag2")
@@ -76,7 +78,7 @@ def apply_changes(proj, t, values):
             t.Duration = round(values[key] * _get_mpd(proj))
         else:
             setattr(t, FIELD_ATTR[key], values[key])
-        changed.append(key)
+        changed.append(CHANGED_NAMES.get(key, key))
     for key in ("start", "finish"):
         if key in values:
             actual = str(getattr(t, FIELD_ATTR[key]))[:16]

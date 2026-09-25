@@ -8,9 +8,11 @@ Start1-10/Finish1-10 custom fields, which a plain baseline number would overwrit
 
 import datetime
 import json
+from typing import List, Optional
 
 from ..com_helpers import get_app, get_proj, _get_mpd, _fmt_date, _to_naive
 from ..com_write import commit
+from ..view_selection import rows_in_id_order, select_tasks
 
 PJ_COPY_CURRENT = 0
 
@@ -39,49 +41,74 @@ def _check_range(n, name, allow_current=False):
         raise ValueError(f"{name} must be 0-10{' or -1 (current schedule)' if allow_current else ''}.")
 
 
+def _has_baseline(task, n):
+    return _date_or_none(getattr(task, _attr(n, "Start"))) is not None
+
+
+def _apply_baseline(save, baseline_number, all_tasks, unique_ids):
+    """
+    BaselineSave/BaselineClear for all tasks or for a verified selection of specific tasks.
+    Selection-based calls never use whatever the user happens to have selected in the view.
+    """
+    _check_range(baseline_number, "baseline_number")
+    if unique_ids is None and not all_tasks:
+        raise ValueError("To baseline specific tasks, pass unique_ids (all_tasks=False alone would use "
+                         "whatever is selected in MS Project).")
+    app  = get_app()
+    proj = get_proj(app)
+    into = _into(baseline_number)
+    targets = [t for t in proj.Tasks if t is not None and (unique_ids is None or t.UniqueID in set(unique_ids))]
+
+    def run(all_tasks_flag):
+        if save:
+            app.BaselineSave(All=all_tasks_flag, Copy=PJ_COPY_CURRENT, Into=into)
+        else:
+            app.BaselineClear(All=all_tasks_flag, From=into)
+
+    if unique_ids is None:
+        run(True)
+    else:
+        with rows_in_id_order(app, proj):
+            select_tasks(proj, app, unique_ids)
+            run(False)
+    wrong = [t.UniqueID for t in targets if _has_baseline(t, baseline_number) != save]
+    if wrong:
+        return json.dumps({"error": f"MS Project did not {'save' if save else 'clear'} baseline "
+                                    f"{baseline_number} for UniqueIDs {wrong[:20]}."})
+    commit(app, proj)
+    return json.dumps({"status": "saved" if save else "cleared", "baseline_number": baseline_number,
+                       "all_tasks": unique_ids is None,
+                       ("tasks_baselined" if save else "tasks_cleared"): len(targets)}, indent=2)
+
+
 def register_baselines_tools(mcp):
     """Register the baselines tools on the FastMCP instance."""
 
     @mcp.tool()
-    def save_baseline(baseline_number: int = 0, all_tasks: bool = True) -> str:
+    def save_baseline(baseline_number: int = 0, all_tasks: bool = True,
+                      unique_ids: Optional[List[int]] = None) -> str:
         """
         Save the current schedule into a baseline (Baseline, or Baseline1-10) for variance tracking.
 
         Args:
             baseline_number: 0 to 10 (Baseline, Baseline1 through Baseline10). Default 0.
-            all_tasks:       True to baseline all tasks (default), False for the selected tasks only.
+            all_tasks:       True (default) baselines every task. Ignored when unique_ids is given.
+            unique_ids:      Baseline only these tasks (by UniqueID).
         """
-        _check_range(baseline_number, "baseline_number")
-        app  = get_app()
-        proj = get_proj(app)
-        app.BaselineSave(All=all_tasks, Copy=PJ_COPY_CURRENT, Into=_into(baseline_number))
-        saved = _baselined_count(proj, baseline_number)
-        if saved == 0:
-            return json.dumps({"error": f"MS Project did not save baseline {baseline_number}."})
-        commit(app, proj)
-        return json.dumps({"status": "saved", "baseline_number": baseline_number, "all_tasks": all_tasks,
-                           "tasks_baselined": saved}, indent=2)
+        return _apply_baseline(save=True, baseline_number=baseline_number, all_tasks=all_tasks, unique_ids=unique_ids)
 
     @mcp.tool()
-    def clear_baseline(baseline_number: int = 0, all_tasks: bool = True) -> str:
+    def clear_baseline(baseline_number: int = 0, all_tasks: bool = True,
+                       unique_ids: Optional[List[int]] = None) -> str:
         """
         Clear a previously saved baseline.
 
         Args:
             baseline_number: 0 to 10. Default 0.
-            all_tasks:       True to clear for all tasks (default), False for the selected tasks only.
+            all_tasks:       True (default) clears it for every task. Ignored when unique_ids is given.
+            unique_ids:      Clear it only for these tasks (by UniqueID).
         """
-        _check_range(baseline_number, "baseline_number")
-        app  = get_app()
-        proj = get_proj(app)
-        before = _baselined_count(proj, baseline_number)
-        app.BaselineClear(All=all_tasks, From=_into(baseline_number))
-        remaining = _baselined_count(proj, baseline_number)
-        if all_tasks and remaining:
-            return json.dumps({"error": f"MS Project left baseline {baseline_number} on {remaining} tasks."})
-        commit(app, proj)
-        return json.dumps({"status": "cleared", "baseline_number": baseline_number,
-                           "tasks_cleared": before - remaining}, indent=2)
+        return _apply_baseline(save=False, baseline_number=baseline_number, all_tasks=all_tasks, unique_ids=unique_ids)
 
     @mcp.tool()
     def compare_baselines(baseline_a: int = 0, baseline_b: int = -1) -> str:

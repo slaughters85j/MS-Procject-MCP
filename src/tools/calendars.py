@@ -78,7 +78,7 @@ def register_calendars_tools(mcp):
         cal = _calendar(proj, calendar_name)
         previous = proj.Calendar.Name
         if previous == cal.Name:
-            return json.dumps({"status": "unchanged", "calendar": previous}, indent=2)
+            return json.dumps({"status": "updated", "calendar": previous, "previous": previous, "changed": False}, indent=2)
         # Calendar is the 13th argument; by name MS Project ignores it or opens its dialog.
         invoke_positional(app, "ProjectSummaryInfo", proj.Name, *([None] * 11), cal.Name)
         if proj.Calendar.Name != cal.Name:

@@ -51,7 +51,7 @@ class TestCalcPolicy:
             # Write without triggering recalc
             for t in proj.Tasks:
                 if t is not None and not t.Summary and not t.Milestone:
-                    t.Duration = proj.MinutesPerDay * 10
+                    t.Duration = int(proj.HoursPerDay * 60) * 10
                     break
 
         # Should be restored after the block
@@ -87,7 +87,7 @@ class TestCalcPolicy:
         error out.
         """
         app, proj, path = temp_mpp
-        mpd = proj.MinutesPerDay
+        mpd = int(proj.HoursPerDay * 60)
 
         with deferred_calc(app):
             for t in proj.Tasks:

@@ -11,6 +11,8 @@ import datetime
 import json
 import os
 import sys
+sys.path.insert(0, os.path.dirname(__file__))
+from _toolcall import tool_text  # noqa: E402
 import tempfile
 
 # Add the repo root to the path for the server import
@@ -25,9 +27,7 @@ SKIP = 0
 async def call(tool_name, **kwargs):
     """Call an MCP tool and return parsed JSON."""
     result = await mcp.call_tool(tool_name, kwargs)
-    # result is (list_of_TextContent, meta_dict)
-    contents = result[0] if isinstance(result, tuple) else result
-    text = contents[0].text if contents else ""
+    text = tool_text(result)
     try:
         return json.loads(text) if text else {}
     except json.JSONDecodeError:
@@ -245,7 +245,7 @@ async def run_tests():
     try:
         import win32com.client
         app = win32com.client.GetActiveObject("MSProject.Application")
-        app.FileNew()
+        app.FileNew(SummaryInfo=False)
         xlink_proj = app.ActiveProject
         xlink_proj.Title = "Structure Export Xlink"
         xt = xlink_proj.Tasks.Add("External Task")
@@ -271,7 +271,7 @@ async def run_tests():
         tmp_mpp = os.path.join(tempfile.gettempdir(), "structure_export_subproject_fixture.mpp")
 
         app = win32com.client.GetActiveObject("MSProject.Application")
-        app.FileNew()
+        app.FileNew(SummaryInfo=False)
         sub_proj = app.ActiveProject
         sub_proj.Title = "Subproject Fixture"
         st = sub_proj.Tasks.Add("Sub Work")
@@ -283,7 +283,7 @@ async def run_tests():
         # Re-activate main
         for i in range(1, app.Projects.Count + 1):
             if main_project_name.lower() in app.Projects(i).Name.lower():
-                app.Projects(i).Activate()
+                app.WindowActivate(WindowName=app.Projects(i).Name)  # Project.Activate() fails when hidden
                 break
 
         r = await call("insert_subproject", file_path=tmp_mpp)

@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 
 from ..com_helpers import get_app, get_proj, _get_mpd, _fmt_date, _find_task
 from ..com_write import commit, batch_calc, validate_rag
-from ..task_fields import FIELD_ATTR, validate_changes, apply_changes
+from ..task_fields import FIELD_ATTR, SAFE_URL_SCHEMES, validate_changes, apply_changes
 
 def _parse_updates(updates_json):
     items = json.loads(updates_json)

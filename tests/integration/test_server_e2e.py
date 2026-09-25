@@ -23,7 +23,7 @@ class TestCOMRoundTrip:
     def test_new_project_and_task_creation(self, project_app):
         """Create a project, add tasks, verify count is exact."""
         app = project_app
-        app.FileNew()
+        app.FileNew(SummaryInfo=False)
         proj = app.ActiveProject
         proj.Title = "E2E Test Project"
 
@@ -31,16 +31,16 @@ class TestCOMRoundTrip:
         t1.OutlineLevel = 1
         t2 = proj.Tasks.Add("E2E Work")
         t2.OutlineLevel = 2
-        t2.Duration = proj.MinutesPerDay * 2
+        t2.Duration = int(proj.HoursPerDay * 60) * 2
 
         assert live_task_count(proj) == 2
 
     def test_add_task_and_read_back(self, project_app):
         """Add a task via COM and read it back by UniqueID."""
         app = project_app
-        app.FileNew()
+        app.FileNew(SummaryInfo=False)
         proj = app.ActiveProject
-        mpd = proj.MinutesPerDay
+        mpd = int(proj.HoursPerDay * 60)
 
         t = proj.Tasks.Add("Readback Test")
         t.Duration = mpd * 5

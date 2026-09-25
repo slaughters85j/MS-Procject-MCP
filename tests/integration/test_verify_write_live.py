@@ -67,7 +67,7 @@ class TestVerifyAfterWrite:
         based on constraints/predecessors — we accept drift within tolerance.
         """
         app, proj, path = temp_mpp
-        mpd = proj.MinutesPerDay
+        mpd = int(proj.HoursPerDay * 60)
         task = None
         for t in proj.Tasks:
             if t is not None and not t.Summary and not t.Milestone:

@@ -90,7 +90,8 @@ def register_custom_fields_tools(mcp):
             setattr(t, canonical, value)
         commit(app, proj)
         return json.dumps({"status": "updated", "unique_id": unique_id, "name": t.Name,
-                           "changed": [{"field": c, "value": str(getattr(t, c))} for c, _ in planned]}, indent=2)
+                           "changed": [{"field": c, "value": str(getattr(t, c))} for c, _ in planned],
+                           "errors": []}, indent=2)  # validation is all-or-nothing; kept for compatibility
 
     @mcp.tool()
     def get_custom_field_values(field_name: str) -> str:

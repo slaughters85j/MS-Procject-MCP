@@ -10,6 +10,18 @@ from ..com_write import parse_iso, to_com_date, commit, resolve_resource, invoke
 
 RATE_TABLES = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5}
 PJ_RESOURCE_TIMESCALED_WORK = 13
+PJ_RESOURCE_TIMESCALED_OVERALLOCATION = 42
+PJ_TIMESCALE_MONTHS = 2
+
+
+def _is_overallocated(proj, resource):
+    """
+    Overallocation anywhere in the project, from timescaled data. Reading the
+    Resource.Overallocated property makes Project recompute and marks the file unsaved.
+    """
+    start, finish = proj.ProjectStart, proj.ProjectFinish
+    data = resource.TimeScaleData(start, finish, PJ_RESOURCE_TIMESCALED_OVERALLOCATION, PJ_TIMESCALE_MONTHS)
+    return any(item.Value not in ("", None, 0) for item in data)
 
 
 def _date_range(start_date, end_date, required=False):
@@ -76,7 +88,7 @@ def register_resource_planning_tools(mcp):
 
         return json.dumps({
             "resource":                 resource.Name,
-            "overallocated_in_project": bool(resource.Overallocated),
+            "overallocated":            _is_overallocated(proj, resource),  # anywhere in the project
             "max_units":                resource.MaxUnits,
             "assignments":              assignments,
             "conflicts":                conflicts,

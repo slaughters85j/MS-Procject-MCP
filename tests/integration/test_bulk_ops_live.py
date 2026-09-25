@@ -90,8 +90,9 @@ class TestBulkOpsLive:
         store = self._setup_store(app)
         uids = self._get_work_task_uids(proj)
 
+        # A value the fixture does not already hold, so the first apply really writes.
         items = [
-            BulkItem(BulkAction.UPDATE, uids[0], {"Text1": "Green"}),
+            BulkItem(BulkAction.UPDATE, uids[0], {"Text1": "Amber"}),
         ]
 
         # First apply

@@ -11,6 +11,8 @@ import json
 import importlib.util
 import os
 import sys
+sys.path.insert(0, os.path.dirname(__file__))
+from _toolcall import tool_text  # noqa: E402
 
 _server_path = os.path.join(os.path.dirname(__file__), "..", "..", "server.py")
 spec = importlib.util.spec_from_file_location("server", _server_path)
@@ -21,15 +23,7 @@ spec.loader.exec_module(mod)
 async def call(name, args=None):
     """Call an MCP tool and return parsed JSON or raw text."""
     r = await mod.mcp.call_tool(name, args or {})
-    if isinstance(r, tuple):
-        r = r[0]
-    if isinstance(r, list):
-        item = r[0]
-        text = item.text if hasattr(item, "text") else str(item)
-    elif hasattr(r, "text"):
-        text = r.text
-    else:
-        text = str(r)
+    text = tool_text(r)
     try:
         return json.loads(text)
     except (json.JSONDecodeError, TypeError):
@@ -170,23 +164,23 @@ async def run_tests():
     try:
         # Filter by outline_level
         r = await call("filter_tasks", {"filters_json": json.dumps({"outline_level": 2, "summary": False})})
-        assert r["total_matching"] > 0, "No tasks at outline level 2"
-        print(f"  Level 2 tasks: {r['total_matching']}")
+        assert r["pagination"]["total"] > 0, "No tasks at outline level 2"
+        print(f"  Level 2 tasks: {r['pagination']['total']}")
 
         # Filter milestones
         r = await call("filter_tasks", {"filters_json": json.dumps({"milestone": True})})
-        assert r["total_matching"] >= 1, "No milestones found"
-        print(f"  Milestones: {r['total_matching']}")
+        assert r["pagination"]["total"] >= 1, "No milestones found"
+        print(f"  Milestones: {r['pagination']['total']}")
 
         # Test pagination
         r = await call("filter_tasks", {"filters_json": json.dumps({"limit": 2, "offset": 0})})
-        assert r["returned"] <= 2, f"Limit not respected: got {r['returned']}"
-        print(f"  Pagination: returned={r['returned']}, total={r['total_matching']}")
+        assert r["pagination"]["returned"] <= 2, f"Limit not respected: got {r['pagination']['returned']}"
+        print(f"  Pagination: returned={r['pagination']['returned']}, total={r['pagination']['total']}")
 
         # Filter by RAG
         r = await call("filter_tasks", {"filters_json": json.dumps({"rag": "Red"})})
-        assert r["total_matching"] >= 1, "No Red RAG tasks"
-        print(f"  Red RAG tasks: {r['total_matching']}")
+        assert r["pagination"]["total"] >= 1, "No Red RAG tasks"
+        print(f"  Red RAG tasks: {r['pagination']['total']}")
 
         results["filter_tasks"] = "PASS"
     except Exception as e:

@@ -155,6 +155,33 @@ def _fixture_path(name: str) -> str:
     )
 
 
+@pytest.fixture(autouse=True)
+def _release_server_launched_project():
+    """
+    Scenario tests drive the server's tools, which launch (and keep attached) their own hidden
+    Project. Quit it after each test so the next test starts clean instead of seeing
+    "Project already running". Instances the server did not launch are never touched.
+    """
+    yield
+    try:
+        from src.project_session import get_session
+        session = get_session()
+        if session.is_attached and session._we_launched:
+            app = session.app
+            while app.Projects.Count > 0:
+                app.FileCloseEx(0)  # pjDoNotSave: scenario projects are scratch
+            app.Quit(0)  # configure() cannot change quit_on_detach while attached
+            session.detach()
+            # Wait for WINPROJ.EXE to exit, or the next test's auto-attach would find the dying
+            # process, adopt it as "not ours", and never quit it.
+            from src.project_session import _find_existing_project_processes
+            deadline = time.time() + 20
+            while _find_existing_project_processes() and time.time() < deadline:
+                time.sleep(0.5)
+    except Exception as e:
+        logger.warning("Releasing server-launched Project failed: %s", e)
+
+
 # ---------------------------------------------------------------------------
 # Core fixtures
 # ---------------------------------------------------------------------------
@@ -255,7 +282,7 @@ def temp_mpp(project_app, tmp_path):
     except FileNotFoundError:
         # Self-bootstrap: create a minimal project on-the-fly
         logger.info("No fixture found — creating minimal project on-the-fly")
-        app.FileNew()
+        app.FileNew(SummaryInfo=False)
         proj = app.ActiveProject
         proj.Title = "Test Fixture (auto-generated)"
 
@@ -265,12 +292,12 @@ def temp_mpp(project_app, tmp_path):
 
         t2 = proj.Tasks.Add("Task Alpha")
         t2.OutlineLevel = 2
-        t2.Duration = proj.MinutesPerDay * 3  # 3 days
+        t2.Duration = int(proj.HoursPerDay * 60) * 3  # 3 days
         t2.Text1 = "Green"
 
         t3 = proj.Tasks.Add("Task Beta")
         t3.OutlineLevel = 2
-        t3.Duration = proj.MinutesPerDay * 5  # 5 days
+        t3.Duration = int(proj.HoursPerDay * 60) * 5  # 5 days
         t3.Text1 = "Red"
 
         t4 = proj.Tasks.Add("Milestone")
@@ -323,7 +350,7 @@ def temp_mpp_via_session(session_fixture, tmp_path):
     session = session_fixture
     app = session.app
 
-    app.FileNew()
+    app.FileNew(SummaryInfo=False)
     proj = app.ActiveProject
     proj.Title = "Session Test"
 
@@ -331,10 +358,10 @@ def temp_mpp_via_session(session_fixture, tmp_path):
     t1.OutlineLevel = 1
     t2 = proj.Tasks.Add("Work Item A")
     t2.OutlineLevel = 2
-    t2.Duration = proj.MinutesPerDay * 2
+    t2.Duration = int(proj.HoursPerDay * 60) * 2
     t3 = proj.Tasks.Add("Work Item B")
     t3.OutlineLevel = 2
-    t3.Duration = proj.MinutesPerDay * 4
+    t3.Duration = int(proj.HoursPerDay * 60) * 4
     t3.Text1 = "Amber"
 
     dst = os.path.join(str(tmp_path), "session_test.mpp")

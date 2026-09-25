@@ -310,7 +310,8 @@ def register_critical_path_tools(mcp):
 
         new_project_finish = None
         if project_delay_days > 0 and project_finish:
-            new_project_finish = _fmt_date(project_finish + datetime.timedelta(days=int(project_delay_days * 1.4)))  # rough calendar conversion
+            # Working-time arithmetic on the project calendar (weekends, holidays), not calendar days.
+            new_project_finish = _fmt_date(app.DateAdd(proj.ProjectFinish, round(project_delay_days * mpd)))
 
         # Walk downstream tasks (successors chain)
         downstream_affected = []

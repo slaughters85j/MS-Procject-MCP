@@ -2,16 +2,16 @@
 Task placement tools that need Project's clipboard (move, copy) plus recurring tasks.
 
 MS Project has no COM method to move or copy a task, only row selection plus Cut/Copy/Paste.
-Row numbers depend on the current view, so these tools show every task in ID order first and
-verify that the selected rows are exactly the intended tasks before cutting or copying anything.
+Row numbers depend on the current view, so these tools use src/view_selection.py to show every
+task in ID order and verify the selection before cutting or copying anything.
 """
 
 import datetime
 import json
-from contextlib import contextmanager
 
 from ..com_helpers import get_app, get_proj, _get_mpd, _find_task
-from ..com_write import to_com_date, parse_iso, commit, batch_calc
+from ..com_write import to_com_date, parse_iso, commit, batch_calc, invoke_positional
+from ..view_selection import rows_in_id_order, select_block
 
 MAX_COPIES = 20
 
@@ -37,43 +37,11 @@ def _all_uids(proj):
     return {t.UniqueID for t in proj.Tasks if t is not None}
 
 
-@contextmanager
-def _rows_in_id_order(app, proj):
-    """Show all tasks, ungrouped and in ID order, so view row N is task ID N. Restores filter and group."""
-    old_filter, old_group = proj.CurrentFilter, proj.CurrentGroup
-    app.FilterApply("All Tasks")
-    app.GroupApply("No Group")
-    app.OutlineShowAllTasks()
-    app.Sort(Key1="ID", Ascending1=True, Renumber=False)
-    try:
-        yield
-    finally:
-        for apply, name in ((app.FilterApply, old_filter), (app.GroupApply, old_group)):
-            try:
-                if name:
-                    apply(name)
-            except Exception:
-                pass
-
-
-def _select_exactly(app, first_id, uids):
-    """Select the rows for `uids` starting at task ID first_id; refuse if Project selected anything else."""
-    if len(uids) > 1:
-        app.SelectRow(Row=first_id, RowRelative=False, Height=len(uids) - 1)
-    else:
-        app.SelectRow(first_id, False)
-    selection = app.ActiveSelection.Tasks
-    got = [t.UniqueID for t in selection if t is not None] if selection else []
-    if got != uids:
-        raise RuntimeError(f"Selection check failed: expected UniqueIDs {uids} but the view selected {got}. "
-                           "Nothing was changed. Switch the window to a task view (e.g. Gantt Chart) and retry.")
-
-
 def register_task_placement_tools(mcp):
     """Register the move, copy and recurring-task tools on the FastMCP instance."""
 
     @mcp.tool()
-    def move_task(unique_id: int, after_unique_id: int) -> str:
+    def move_task(unique_id: int, after_unique_id: int, keep_outline_level: bool = True) -> str:
         """
         Reposition a task (with its subtasks) to directly after another task.
 
@@ -81,8 +49,11 @@ def register_task_placement_tools(mcp):
         moved tasks (links are kept). The response maps old to new UniqueIDs; use the new ones.
 
         Args:
-            unique_id:       Task UniqueID to move (required).
-            after_unique_id: Place the moved task directly after this task's UniqueID (required).
+            unique_id:          Task UniqueID to move (required).
+            after_unique_id:    Place the moved task directly after this task's UniqueID (required).
+            keep_outline_level: True (default) keeps the task at its original outline level.
+                                False lets it adopt the level of its new position (a paste after a
+                                subtask makes it a subtask of that summary).
         """
         app  = get_app()
         proj = get_proj(app)
@@ -96,26 +67,36 @@ def register_task_placement_tools(mcp):
         if after_unique_id in moving:
             return json.dumps({"error": "Cannot move a task after itself or one of its own subtasks."})
         names = {u: _find_task(proj, u).Name for u in moving}
+        original_level = t.OutlineLevel
 
-        with _rows_in_id_order(app, proj):
-            _select_exactly(app, t.ID, moving)
+        with rows_in_id_order(app, proj):
+            select_block(app, t.ID, moving)
             app.EditCut()
             before = _all_uids(proj)
-            app.SelectRow(_find_task(proj, after_unique_id).ID + 1, False)
+            invoke_positional(app, "SelectRow", _find_task(proj, after_unique_id).ID + 1, False)
             try:
                 app.EditPaste()
             except Exception:
                 app.EditUndo()  # restore the cut rows before reporting the failure
                 raise
         new_uids = sorted(_all_uids(proj) - before, key=lambda u: _find_task(proj, u).ID)
-        commit(app, proj)
         moved = _find_task(proj, new_uids[0]) if new_uids else None
+        if moved is not None and keep_outline_level:
+            # Paste adopts the outline level of the neighbouring row; put the task back where it was.
+            # Indenting or outdenting a summary moves its subtasks with it.
+            for _ in range(abs(moved.OutlineLevel - original_level)):
+                if moved.OutlineLevel > original_level:
+                    moved.OutlineOutdent()
+                else:
+                    moved.OutlineIndent()
+        commit(app, proj)
         return json.dumps({
             "status":         "moved",
             "old_unique_id":  unique_id,
             "unique_id":      moved.UniqueID if moved else None,
             "name":           moved.Name if moved else names[unique_id],
             "new_id":         moved.ID if moved else None,
+            "outline_level":  moved.OutlineLevel if moved else None,
             "uid_map":        dict(zip([str(u) for u in moving], new_uids)),
             "note":           "Cut/paste assigns new UniqueIDs; predecessor links are preserved.",
         }, indent=2)
@@ -139,12 +120,12 @@ def register_task_placement_tools(mcp):
         uids = _subtree_uids(proj, source)
 
         all_copies = []
-        with _rows_in_id_order(app, proj):
-            _select_exactly(app, source.ID, uids)
+        with rows_in_id_order(app, proj):
+            select_block(app, source.ID, uids)
             app.EditCopy()
             for _ in range(copies):
                 before = _all_uids(proj)
-                app.SelectRow(proj.Tasks.Count + 1, False)
+                invoke_positional(app, "SelectRow", proj.Tasks.Count + 1, False)
                 app.EditPaste()
                 new = sorted(_all_uids(proj) - before, key=lambda u: _find_task(proj, u).ID)
                 all_copies.append([{"unique_id": u, "name": _find_task(proj, u).Name} for u in new])

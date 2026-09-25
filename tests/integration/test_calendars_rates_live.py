@@ -10,6 +10,8 @@ import asyncio
 import json
 import os
 import sys
+sys.path.insert(0, os.path.dirname(__file__))
+from _toolcall import tool_text  # noqa: E402
 import tempfile
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -24,8 +26,7 @@ async def call(tool_name, **kwargs):
     """Call an MCP tool and return parsed JSON."""
     try:
         result = await mcp.call_tool(tool_name, kwargs)
-        contents = result[0] if isinstance(result, tuple) else result
-        text = contents[0].text if contents else ""
+        text = tool_text(result)
         return json.loads(text) if text else {}
     except Exception as e:
         print(f"  [ERROR] {tool_name}: {str(e)[:120]}")

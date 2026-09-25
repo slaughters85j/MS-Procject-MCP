@@ -24,6 +24,17 @@ def _check_new_name(proj, name):
         raise ValueError(f"A resource named '{name}' already exists.")
 
 
+def _resource_or_create(proj, name):
+    """(resource, created): an existing resource by name, or a new one if none exists."""
+    try:
+        return _resource(proj, name), False
+    except ValueError as e:
+        if "ambiguous" in str(e):
+            raise
+    _check_new_name(proj, name)
+    return proj.Resources.Add(name), True
+
+
 def _assign(task, resource, units):
     """Add one assignment through Task.Assignments. Raises ValueError on invalid units or duplicates."""
     if units <= 0:
@@ -119,12 +130,12 @@ def register_resources_tools(mcp):
     @mcp.tool()
     def assign_resource(task_unique_id: int, resource_name: str, units: float = 1.0) -> str:
         """
-        Assign an existing resource to a task (resources are never created implicitly;
-        use add_resource first).
+        Assign a resource to a task. If no resource has that name it is created, and the
+        response says so ("created_resource": true).
 
         Args:
             task_unique_id: Task UniqueID (required).
-            resource_name:  Name of an existing resource (required).
+            resource_name:  Resource name (case-insensitive match; created if missing).
             units:          Allocation units, e.g. 1.0 = 100%, 0.5 = 50% (default 1.0).
         """
         app  = get_app()
@@ -132,17 +143,21 @@ def register_resources_tools(mcp):
         task = _find_task(proj, task_unique_id)
         if task is None:
             return json.dumps({"error": f"Task UniqueID {task_unique_id} not found."})
-        _assign(task, _resource(proj, resource_name), units)
+        if units <= 0:
+            raise ValueError("units must be greater than 0.")
+        resource, created = _resource_or_create(proj, resource_name)
+        _assign(task, resource, units)
         commit(app, proj)
         return json.dumps({"status": "assigned", "task_unique_id": task_unique_id, "task_name": task.Name,
-                           "resource_name": resource_name, "units": units,
+                           "resource_name": resource.Name, "units": units, "created_resource": created,
                            "resource_names": task.ResourceNames}, indent=2)
 
     @mcp.tool()
     def bulk_assign_resources(assignments_json: str) -> str:
         """
-        Assign existing resources to multiple tasks in one call. Each item is validated and
-        applied independently; failures are reported per item.
+        Assign resources to multiple tasks in one call (missing resources are created and listed
+        in created_resources). Each item is validated and applied independently; failures are
+        reported per item.
 
         Args:
             assignments_json: JSON string — list of {task_unique_id, resource_name, units (optional)}.
@@ -155,19 +170,25 @@ def register_resources_tools(mcp):
             raise ValueError("assignments_json must be a JSON array of objects.")
         app  = get_app()
         proj = get_proj(app)
-        assigned, errors = 0, []
+        assigned, errors, created_resources = 0, [], []
         with batch_calc(app):
             for i, item in enumerate(items):
                 try:
                     task = _find_task(proj, item.get("task_unique_id"))
                     if task is None:
                         raise ValueError(f"Task UniqueID {item.get('task_unique_id')} not found.")
-                    _assign(task, _resource(proj, item.get("resource_name") or ""), float(item.get("units", 1.0)))
+                    units = float(item.get("units", 1.0))
+                    if units <= 0:
+                        raise ValueError("units must be greater than 0.")
+                    resource, created = _resource_or_create(proj, item.get("resource_name") or "")
+                    if created:
+                        created_resources.append(resource.Name)
+                    _assign(task, resource, units)
                     assigned += 1
                 except Exception as e:
                     errors.append({"index": i, "item": item, "error": _describe_exception(e)[0]})
         commit(app, proj)
-        return json.dumps({"assigned": assigned, "errors": errors}, indent=2)
+        return json.dumps({"assigned": assigned, "errors": errors, "created_resources": created_resources}, indent=2)
 
     @mcp.tool()
     def remove_resource_assignment(task_unique_id: int, resource_name: str) -> str:

@@ -38,6 +38,22 @@ def _check_platform():
 
 
 OUTPUT_DIR = os.path.join(os.path.dirname(__file__), "generated")
+UTC = datetime.timezone.utc  # UTC-aware datetimes reach COM unshifted (naive ones get the local offset)
+
+
+def _new_project(app, title):
+    """Blank project without the Project Information dialog (FileNew() alone opens it and blocks)."""
+    app.FileNew(SummaryInfo=False)
+    proj = app.ActiveProject
+    proj.Title = title
+    return proj, int(proj.HoursPerDay * 60)  # minutes per day; Project has no MinutesPerDay
+
+
+def _assign(proj, task, *names):
+    """Assign resources by name, creating them if needed (list-separator independent)."""
+    for name in names:
+        res = next((r for r in proj.Resources if r is not None and r.Name == name), None) or proj.Resources.Add(name)
+        task.Assignments.Add(task.ID, res.ID, 1.0)
 
 
 def _ensure_output_dir():
@@ -57,10 +73,7 @@ def _save_and_close(app, name):
 def create_basic_project(app):
     """4 tasks: 1 summary, 2 work tasks with RAG, 1 milestone."""
     print("Creating basic_project.mpp...")
-    app.FileNew()
-    proj = app.ActiveProject
-    proj.Title = "Basic Fixture"
-    mpd = proj.MinutesPerDay
+    proj, mpd = _new_project(app, "Basic Fixture")
 
     t1 = proj.Tasks.Add("Summary Phase")
     t1.OutlineLevel = 1
@@ -89,13 +102,10 @@ def create_basic_project(app):
 def create_large_project(app):
     """100+ tasks for performance and stress testing."""
     print("Creating large_project.mpp...")
-    app.FileNew()
-    proj = app.ActiveProject
-    proj.Title = "Large Fixture"
-    mpd = proj.MinutesPerDay
+    proj, mpd = _new_project(app, "Large Fixture")
 
     # Suppress calc during bulk add
-    app.Calculation = 1  # pjManual
+    app.Calculation = 0  # pjManual (PjCalculation: pjAutomatic=-1, pjManual=0)
 
     for phase in range(1, 6):
         summary = proj.Tasks.Add(f"Phase {phase}")
@@ -108,7 +118,7 @@ def create_large_project(app):
             t.Text1 = rag
 
     # Restore auto-calc and recalculate
-    app.Calculation = 0  # pjAutomatic
+    app.Calculation = -1  # pjAutomatic
     app.CalculateAll()
 
     _save_and_close(app, "large_project.mpp")
@@ -117,22 +127,19 @@ def create_large_project(app):
 def create_multi_resource(app):
     """Tasks with resource assignments for TaskStore tests."""
     print("Creating multi_resource.mpp...")
-    app.FileNew()
-    proj = app.ActiveProject
-    proj.Title = "Resource Fixture"
-    mpd = proj.MinutesPerDay
+    proj, mpd = _new_project(app, "Resource Fixture")
 
     t1 = proj.Tasks.Add("Design Review")
     t1.Duration = mpd * 2
-    t1.ResourceNames = "Alice"
+    _assign(proj, t1, "Alice")
 
     t2 = proj.Tasks.Add("Implementation")
     t2.Duration = mpd * 10
-    t2.ResourceNames = "Bob;Charlie"
+    _assign(proj, t2, "Bob", "Charlie")
 
     t3 = proj.Tasks.Add("Testing")
     t3.Duration = mpd * 3
-    t3.ResourceNames = "Alice;Bob"
+    _assign(proj, t3, "Alice", "Bob")
     t3.Predecessors = str(t2.ID)
 
     _save_and_close(app, "multi_resource.mpp")
@@ -141,26 +148,22 @@ def create_multi_resource(app):
 def create_constrained(app):
     """Tasks with scheduling constraints for verify_write tests."""
     print("Creating constrained.mpp...")
-    app.FileNew()
-    proj = app.ActiveProject
-    proj.Title = "Constrained Fixture"
-    mpd = proj.MinutesPerDay
-
+    proj, mpd = _new_project(app, "Constrained Fixture")
 
     t1 = proj.Tasks.Add("SNET Task")
     t1.Duration = mpd * 3
     t1.ConstraintType = 4  # SNET
-    t1.ConstraintDate = datetime.datetime(2026, 6, 1)
+    t1.ConstraintDate = datetime.datetime(2026, 6, 1, 8, tzinfo=UTC)
 
     t2 = proj.Tasks.Add("FNLT Task")
     t2.Duration = mpd * 2
     t2.ConstraintType = 7  # FNLT
-    t2.ConstraintDate = datetime.datetime(2026, 7, 15)
+    t2.ConstraintDate = datetime.datetime(2026, 7, 15, 17, tzinfo=UTC)
 
     t3 = proj.Tasks.Add("MSO Task")
     t3.Duration = mpd * 1
-    t3.ConstraintType = 3  # pjMSO (Must Start On)
-    t3.ConstraintDate = datetime.datetime(2026, 8, 1)
+    t3.ConstraintType = 2  # pjMSO (Must Start On); 3 is pjMFO
+    t3.ConstraintDate = datetime.datetime(2026, 8, 3, 8, tzinfo=UTC)
 
     _save_and_close(app, "constrained.mpp")
 
@@ -168,9 +171,7 @@ def create_constrained(app):
 def create_empty_project(app):
     """Blank project with no tasks."""
     print("Creating empty_project.mpp...")
-    app.FileNew()
-    proj = app.ActiveProject
-    proj.Title = "Empty Fixture"
+    _new_project(app, "Empty Fixture")
     _save_and_close(app, "empty_project.mpp")
 
 

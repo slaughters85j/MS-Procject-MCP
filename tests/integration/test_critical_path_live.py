@@ -9,6 +9,8 @@ import asyncio
 import json
 import os
 import sys
+sys.path.insert(0, os.path.dirname(__file__))
+from _toolcall import tool_text  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from server import mcp
@@ -22,8 +24,7 @@ async def call(tool_name, **kwargs):
     """Call an MCP tool and return parsed JSON."""
     try:
         result = await mcp.call_tool(tool_name, kwargs)
-        contents = result[0] if isinstance(result, tuple) else result
-        text = contents[0].text if contents else ""
+        text = tool_text(result)
         return json.loads(text) if text else {}
     except Exception as e:
         print(f"  [ERROR] {tool_name}: {str(e)[:120]}")
@@ -53,19 +54,21 @@ async def run_tests():
     r = await call("new_project", title="Critical Path Test", start="2026-04-01")
     print(f"  Created project: {r.get('title')}")
 
+    # The chain is auto-scheduled so Project lays it out finish-to-start with zero slack;
+    # manually pinned dates would leave gaps (slack) and make the early chain non-critical.
     tasks_data = json.dumps([
         {"name": "Programme",          "outline_level": 1},
-        {"name": "Requirements",       "outline_level": 2, "start": "2026-04-01", "duration_days": 10},
-        {"name": "Design",             "outline_level": 2, "start": "2026-04-15", "duration_days": 15},
-        {"name": "Design Review (M)",  "outline_level": 2, "start": "2026-05-06", "duration_days": 0},
-        {"name": "Development",        "outline_level": 2, "start": "2026-05-07", "duration_days": 30},
-        {"name": "Testing",            "outline_level": 2, "start": "2026-06-18", "duration_days": 20},
-        {"name": "UAT Sign-off (M)",   "outline_level": 2, "start": "2026-07-16", "duration_days": 0},
-        {"name": "Deployment",         "outline_level": 2, "start": "2026-07-17", "duration_days": 5},
-        {"name": "Go-Live (M)",        "outline_level": 2, "start": "2026-07-24", "duration_days": 0},
+        {"name": "Requirements",       "outline_level": 2, "start": "2026-04-01", "duration_days": 10, "manual": False},
+        {"name": "Design",             "outline_level": 2, "duration_days": 15, "manual": False},
+        {"name": "Design Review (M)",  "outline_level": 2, "duration_days": 0, "milestone": True, "manual": False},
+        {"name": "Development",        "outline_level": 2, "duration_days": 30, "manual": False},
+        {"name": "Testing",            "outline_level": 2, "duration_days": 20, "manual": False},
+        {"name": "UAT Sign-off (M)",   "outline_level": 2, "duration_days": 0, "milestone": True, "manual": False},
+        {"name": "Deployment",         "outline_level": 2, "duration_days": 5, "manual": False},
+        {"name": "Go-Live (M)",        "outline_level": 2, "duration_days": 0, "milestone": True, "manual": False},
         # Parallel non-critical track
-        {"name": "Documentation",      "outline_level": 2, "start": "2026-05-07", "duration_days": 10},
-        {"name": "Training",           "outline_level": 2, "start": "2026-05-21", "duration_days": 5},
+        {"name": "Documentation",      "outline_level": 2, "start": "2026-05-07", "duration_days": 10, "manual": False},
+        {"name": "Training",           "outline_level": 2, "duration_days": 5, "manual": False},
     ])
     r = await call("bulk_add_tasks", tasks_json=tasks_data)
     created = r.get("tasks", [])
@@ -123,7 +126,7 @@ async def run_tests():
         ok("steps are sequential", steps == list(range(1, len(steps) + 1)))
 
         # First task should be Requirements (start of chain)
-        ok("first task is Requirements", seq[0]["name"] == "Requirements")
+        ok("first task is Requirements", seq[0]["name"] == "Requirements", f"got {[s['name'] for s in seq]}")
 
         # Last task should be Go-Live
         ok("last task is Go-Live", seq[-1]["name"] == "Go-Live (M)")
@@ -157,7 +160,7 @@ async def run_tests():
     ok("has critical_milestones", isinstance(r.get("critical_milestones"), list))
 
     ct = r.get("critical_tasks", [])
-    ok("critical tasks found for Q2", len(ct) > 0)
+    ok("critical tasks found for Q2", len(ct) > 0, f"got {r}")
 
     if ct:
         first_ct = ct[0]

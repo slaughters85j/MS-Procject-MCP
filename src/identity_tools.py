@@ -17,6 +17,7 @@ from .project_identity import (
     ProjectIdentity,
     ProjectMismatchError,
 )
+from .com_write import activate_project
 from .project_session import get_session
 
 logger = logging.getLogger(__name__)
@@ -132,7 +133,7 @@ def register_identity_tools(mcp):
                 }
 
             # Execute the switch
-            app.Projects(target_proj.Name).Activate()
+            activate_project(app, target_proj)
             new_identity = get_active_identity(app)
 
             return {

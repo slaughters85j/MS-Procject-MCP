@@ -68,6 +68,21 @@ def minutes_per_day(proj):
         return 480
 
 
+def activate_project(app, proj):
+    """
+    Make proj the active project. Project.Activate() raises "unexpected error" in an
+    invisible (headless) instance, so activate its window instead; that works either way.
+    """
+    if app.ActiveProject.FullName == proj.FullName:
+        return
+    try:
+        app.WindowActivate(WindowName=proj.Name)
+    except Exception:
+        proj.Activate()
+    if app.ActiveProject.FullName != proj.FullName:
+        raise RuntimeError(f"Could not activate project '{proj.Name}'.")
+
+
 def autosave_enabled():
     """MSPROJECT_AUTOSAVE (default on): save the project after every mutating tool call."""
     return os.environ.get("MSPROJECT_AUTOSAVE", "1").strip().lower() not in ("0", "false", "no", "off")
@@ -86,12 +101,22 @@ def commit(app, proj=None):
     if not autosave_enabled() or not proj.Path:
         return False
     if proj.FullName != active.FullName:  # FileSave saves the active project only
-        proj.Activate()
-        app.FileSave()
-        active.Activate()
+        activate_project(app, proj)
+        _settle_and_save(app)
+        activate_project(app, active)
     else:
-        app.FileSave()
+        _settle_and_save(app)
     return True
+
+
+def _settle_and_save(app):
+    """
+    Finish Project's deferred calculation before saving. Some writes (e.g. a status date)
+    defer recalculation to the next read, which would then mark a just-saved file dirty.
+    """
+    if app.Calculation == -1:  # pjAutomatic; never force a recalc on a user in Manual mode
+        app.CalculateProject()
+    app.FileSave()
 
 
 @contextmanager

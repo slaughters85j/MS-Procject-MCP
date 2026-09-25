@@ -69,7 +69,7 @@ The server communicates over stdio. Start MS Project and open a `.mpp` file befo
 
 ### Safety Features
 
-**Path confinement.** Set `MSPROJECT_SAFE_ROOT` to restrict all file operations (`open_project`, `save_project_as`, `export_csv`, etc.) to a directory tree. Unset = all file ops refused (fail-closed).
+**Path confinement.** Set `MSPROJECT_SAFE_ROOT` to restrict all file operations (`open_project`, `save_project_as`, `export_csv`, etc.) to a directory tree; paths outside it (including `..` traversal) are refused. Unset = no confinement, so set it for any deployment where the model should not reach the whole filesystem.
 
 **Dry-run mode.** Set `MSPROJECT_DRY_RUN=1` (or `true`/`yes`/`on`) to prevent all mutations server-wide. The gate is applied to every mutating tool in one place (`src/tool_guardrails.py`); they return `"status": "dry-run"` without touching the project, and `bulk_update` is forced to `mode="dry_run"`. Session and view tools (`session_attach`, `switch_project`, `apply_filter`, `open_project`, ...) stay live.
 
@@ -101,7 +101,7 @@ The server communicates over stdio. Start MS Project and open a `.mpp` file befo
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MSPROJECT_SAFE_ROOT` | *(unset = all file ops refused)* | Directory tree where file operations are allowed. Paths outside this root are rejected. |
+| `MSPROJECT_SAFE_ROOT` | *(unset = no confinement)* | Directory tree where file operations are allowed. Paths outside this root are rejected. Recommended for every deployment. |
 | `MSPROJECT_DRY_RUN` | `0` | Set to `1` to prevent all mutations server-wide. Every mutating tool returns a dry-run preview. |
 | `MSPROJECT_AUTOSAVE` | `1` | Save the project after every mutating tool call. Set to `0` to keep changes unsaved (and keep Project's undo history, which every save clears). Untitled projects are never auto-saved. |
 
@@ -143,11 +143,12 @@ pip install -e ".[dev]"
 # Unit tests (no MS Project required)
 pytest tests/ -v
 
-# Integration tests (requires MS Project running on Windows)
+# Integration tests (Windows with MS Project installed; close Project first)
+python tests/fixtures/generate_fixtures.py
 pytest tests/integration/ -v
 ```
 
-Unit tests in `tests/` mock COM and mpxj, so they run on any platform. `tests/integration/` holds the live tests: per-module COM tests for the hardening modules, plus tool-level scenario tests (`*_live.py`) that drive the MCP tools end to end against a real MS Project. They skip automatically when MS Project is not available, and `tests/fixtures/generate_fixtures.py` builds the `.mpp` fixtures they use.
+Unit tests in `tests/` mock COM and mpxj, so they run on any platform. `tests/integration/` holds the live tests: per-module COM tests for the hardening modules, plus tool-level scenario tests (`*_live.py`) that drive the MCP tools end to end against a real MS Project. They skip automatically when MS Project is not available, and `tests/fixtures/generate_fixtures.py` builds the fictional `.mpp` fixtures they use. The integration tests start their own hidden Project instance and quit it afterwards, so they refuse to run (skip) while you have Project open; they never attach to or close your session.
 
 ### Branch Structure
 
@@ -162,7 +163,8 @@ The GitHub Actions workflow runs on Windows runners with MS Project installed. S
 
 - **COM proxy staleness:** Switching projects invalidates existing COM references. The WP-5 TaskStore handles this automatically, but legacy tools may need a `switch_project` call first.
 - **Undo stack:** saving clears MS Project's undo history, so with autosave on (the default) `undo_last` has nothing to undo after a tool write and says so. Run with `MSPROJECT_AUTOSAVE=0` to use it.
-- **Moving/copying tasks:** Project has no COM move/copy API, so `move_task` and `copy_task_structure` use cut/copy/paste, which assigns new UniqueIDs (returned as `uid_map`; links are kept).
+- **Moving/copying tasks:** Project has no COM move/copy API, so `move_task` and `copy_task_structure` use cut/copy/paste, which assigns new UniqueIDs (returned as `uid_map`; links are kept). `move_task` keeps the task's outline level unless `keep_outline_level=false`.
+- **Baselines for specific tasks:** pass `unique_ids` to `save_baseline`/`clear_baseline`; `all_tasks=false` alone is refused rather than acting on whatever is selected in Project.
 - **File locking:** Only one process can hold the COM connection. Don't open Project's GUI dialogs while the server is active (or use headless mode via WP-1).
 - **Recurring tasks:** MS Project's `RecurringTaskInsert` is dialog-only in COM. The `add_recurring_task` tool simulates recurrence by creating individual occurrences under a summary task.
 - **Timephased data:** `get_timephased_data` can be slow on large date ranges. Keep queries to weeks or months, not years.

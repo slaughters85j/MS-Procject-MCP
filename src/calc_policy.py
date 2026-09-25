@@ -144,7 +144,7 @@ def calculate_project(app, project=None) -> dict:
     """
     Trigger an explicit full recalculation.
 
-    If project is given, activates it and recalculates it via
+    If project is given, activates it (if needed) and recalculates it via
     Application.CalculateProject(). Otherwise calls Application.CalculateAll().
 
     Args:
@@ -157,7 +157,8 @@ def calculate_project(app, project=None) -> dict:
     scope = "project" if project else "all"
     try:
         if project:
-            project.Activate()
+            from .com_write import activate_project
+            activate_project(app, project)
             app.CalculateProject()
         else:
             app.CalculateAll()

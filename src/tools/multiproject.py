@@ -6,7 +6,7 @@ import json
 import os
 
 from ..com_helpers import get_app, get_proj, _fmt_date, _find_task
-from ..com_write import commit, LINK_TYPES
+from ..com_write import commit, activate_project, LINK_TYPES
 from ..guards import validate_safe_path
 
 
@@ -89,7 +89,7 @@ def register_multiproject_tools(mcp):
             idx = int(name_or_index)
             if 1 <= idx <= app.Projects.Count:
                 p = app.Projects(idx)
-                p.Activate()
+                activate_project(app, p)
                 return json.dumps(_project_summary(p, "switched"), indent=2)
             else:
                 return json.dumps({"error": f"Index {idx} out of range. Projects: 1-{app.Projects.Count}."})
@@ -99,7 +99,7 @@ def register_multiproject_tools(mcp):
         p = _resolve_project(app, name_or_index)
         if app.ActiveProject.FullName == p.FullName:
             return json.dumps(_project_summary(p, "already_active"), indent=2)
-        p.Activate()
+        activate_project(app, p)
         return json.dumps(_project_summary(p, "switched"), indent=2)
 
 
@@ -159,13 +159,9 @@ def register_multiproject_tools(mcp):
         if tgt_task is None:
             return json.dumps({"error": f"Target task UniqueID {target_unique_id} not found in '{tgt_proj.Name}'."})
 
-        if src_proj.FullName == tgt_proj.FullName:
-            tgt_task.TaskDependencies.Add(From=src_task, Type=LINK_TYPES[code], Lag=0)
-        else:
-            # External predecessor syntax: <full path>\<task ID><type>
-            pred = f"{src_proj.FullName}\\{src_task.ID}{code}"
-            existing = (tgt_task.Predecessors or "").strip()
-            tgt_task.Predecessors = f"{existing},{pred}" if existing else pred
+        # The object API creates same-file and cross-file (external) links alike, without
+        # composing the Predecessors text (whose list separator depends on the Windows locale).
+        tgt_task.TaskDependencies.Add(From=src_task, Type=LINK_TYPES[code], Lag=0)
         commit(app, tgt_proj)
         return json.dumps({
             "status":    "linked",

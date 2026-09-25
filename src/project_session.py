@@ -416,13 +416,29 @@ class ProjectSession:
     # ------------------------------------------------------------------
 
     def _atexit_cleanup(self) -> None:
-        """Best-effort cleanup on process exit."""
-        if self._state == SessionState.ATTACHED:
-            logger.info("atexit: cleaning up COM session")
-            try:
-                self.detach()
-            except Exception as e:
-                logger.warning("atexit cleanup failed: %s", e)
+        """
+        Best-effort cleanup on process exit.
+
+        An instance this server launched is usually hidden; left running it would be an
+        invisible orphan the user cannot close. Quit it when everything in it is saved;
+        if anything is unsaved, show it instead so no work is discarded.
+        """
+        if self._state != SessionState.ATTACHED:
+            return
+        logger.info("atexit: cleaning up COM session")
+        try:
+            if self._we_launched and self._app is not None:
+                app = self._app
+                unsaved = [app.Projects(i).Name for i in range(1, app.Projects.Count + 1)
+                           if not app.Projects(i).Saved]
+                if unsaved:
+                    logger.warning("atexit: leaving launched Project open and visible (unsaved: %s)", unsaved)
+                    app.Visible = True
+                else:
+                    self._quit_on_detach = True
+            self.detach()
+        except Exception as e:
+            logger.warning("atexit cleanup failed: %s", e)
 
 
 # ---------------------------------------------------------------------------

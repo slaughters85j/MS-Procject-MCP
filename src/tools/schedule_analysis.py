@@ -133,31 +133,10 @@ def register_schedule_analysis_tools(mcp):
                     issues["empty_summaries"]["tasks"].append(tid)
                 continue  # Skip non-leaf checks for summaries
 
-            # Orphan tasks: no predecessors AND no successors
+            # Orphan tasks: no predecessors AND no successors. Project maintains both fields,
+            # so an empty check needs no parsing (the list separator varies by Windows locale).
             preds = (t.Predecessors or "").strip()
-            # Check if this task is a predecessor for any other task
-            has_successor = False
-            task_id_str = str(t.ID)
-            for other in tasks_list:
-                if other is None or other.UniqueID == t.UniqueID:
-                    continue
-                other_preds = (other.Predecessors or "").strip()
-                if other_preds:
-                    # Check if our task ID appears in other's predecessors
-                    for part in other_preds.split(","):
-                        part = part.strip()
-                        # Extract the numeric ID from predecessor string like "5FS" or "5"
-                        num = ""
-                        for ch in part:
-                            if ch.isdigit():
-                                num += ch
-                            else:
-                                break
-                        if num == task_id_str:
-                            has_successor = True
-                            break
-                if has_successor:
-                    break
+            has_successor = bool((t.Successors or "").strip())
 
             if not preds and not has_successor:
                 issues["orphan_tasks"]["count"] += 1

@@ -151,24 +151,16 @@ def register_cost_tools(mcp):
                     "baseline_cost":  baseline,
                 })
 
-        # Cost by resource
-        try:
-            for r in proj.Resources:
-                if r is not None:
-                    r_cost = 0
-                    r_actual = 0
-                    try:
-                        r_cost = float(r.Cost) if r.Cost else 0
-                    except Exception:
-                        pass
-                    try:
-                        r_actual = float(r.ActualCost) if r.ActualCost else 0
-                    except Exception:
-                        pass
-                    if r_cost > 0 or r_actual > 0:
-                        by_resource[r.Name] = {"cost": r_cost, "actual_cost": r_actual}
-        except Exception:
-            pass
+        # Cost by resource, summed from assignments (a resource's cost is the sum of its
+        # assignments). Reading Resource.Cost makes Project recompute and marks the file unsaved.
+        for t in proj.Tasks:
+            if t is None or t.Summary:
+                continue
+            for a in t.Assignments:
+                entry = by_resource.setdefault(a.ResourceName, {"cost": 0.0, "actual_cost": 0.0})
+                entry["cost"] += float(a.Cost or 0)
+                entry["actual_cost"] += float(a.ActualCost or 0)
+        by_resource = {k: v for k, v in by_resource.items() if v["cost"] > 0 or v["actual_cost"] > 0}
 
         totals["variance"] = totals["baseline_cost"] - totals["cost"]
 

@@ -241,6 +241,7 @@ class TestDeferredCalc:
         """If Calculate succeeds but Name access fails, still report success."""
         app = MagicMock()
         project = MagicMock()
+        app.ActiveProject = project  # already active: no activation needed
         app.CalculateProject.return_value = None
         type(project).Name = property(lambda self: (_ for _ in ()).throw(Exception("stale proxy")))
         result = calculate_project(app, project=project)
@@ -265,8 +266,18 @@ class TestCalculateProject:
         app = MagicMock()
         project = MagicMock()
         project.Name = "test.mpp"
+        project.FullName = r"C:\b\test.mpp"
+        other = MagicMock()
+        other.FullName = r"C:\a\other.mpp"
+        app.ActiveProject = other
+
+        def window_activate(WindowName):
+            app.ActiveProject = project
+        app.WindowActivate.side_effect = window_activate
         result = calculate_project(app, project=project)
-        project.Activate.assert_called_once()
+        # Project.Activate() fails in hidden instances; activation goes through the window.
+        app.WindowActivate.assert_called_once_with(WindowName="test.mpp")
+        project.Activate.assert_not_called()
         app.CalculateProject.assert_called_once()
         app.CalculateAll.assert_not_called()
         assert result["recalculated"] is True
@@ -282,6 +293,7 @@ class TestCalculateProject:
     def test_calculate_project_error(self):
         app = MagicMock()
         project = MagicMock()
+        app.ActiveProject = project
         app.CalculateProject.side_effect = Exception("Recalc failed")
         result = calculate_project(app, project=project)
         assert result["recalculated"] is False

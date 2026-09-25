@@ -98,10 +98,16 @@ class TestCommit:
         app = MagicMock()
         active, other = _proj(path="C:\\a.mpp"), _proj(path="C:\\b.mpp")
         app.ActiveProject = active
+        active.Name, other.Name = "a.mpp", "b.mpp"
+        projects = {"a.mpp": active, "b.mpp": other}
+
+        def window_activate(WindowName):
+            app.ActiveProject = projects[WindowName]
+        app.WindowActivate.side_effect = window_activate
         commit(app, other)
-        other.Activate.assert_called_once()
-        active.Activate.assert_called_once()
+        assert [c.kwargs["WindowName"] for c in app.WindowActivate.call_args_list] == ["b.mpp", "a.mpp"]
         app.FileSave.assert_called_once()
+        assert app.ActiveProject is active
 
 
 class TestBatchCalc:

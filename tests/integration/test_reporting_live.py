@@ -10,6 +10,8 @@ import json
 import importlib.util
 import os
 import sys
+sys.path.insert(0, os.path.dirname(__file__))
+from _toolcall import tool_text  # noqa: E402
 
 _server_path = os.path.join(os.path.dirname(__file__), "..", "..", "server.py")
 spec = importlib.util.spec_from_file_location("server", _server_path)
@@ -20,15 +22,7 @@ spec.loader.exec_module(mod)
 async def call(name, args=None):
     """Call an MCP tool and return parsed JSON or raw text."""
     r = await mod.mcp.call_tool(name, args or {})
-    if isinstance(r, tuple):
-        r = r[0]
-    if isinstance(r, list):
-        item = r[0]
-        text = item.text if hasattr(item, "text") else str(item)
-    elif hasattr(r, "text"):
-        text = r.text
-    else:
-        text = str(r)
+    text = tool_text(r)
     try:
         return json.loads(text)
     except (json.JSONDecodeError, TypeError):

@@ -62,7 +62,7 @@ class TestSessionAttachDetach:
         ) as session:
             assert session.is_attached
             app = session.app
-            app.FileNew()
+            app.FileNew(SummaryInfo=False)
             assert app.Projects.Count >= 1
         assert not session.is_attached
 
