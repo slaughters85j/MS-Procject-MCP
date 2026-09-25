@@ -59,7 +59,7 @@ The server communicates over stdio. Start MS Project and open a `.mpp` file befo
 | WP | Module | Purpose |
 |----|--------|---------|
 | 1 | `project_session.py` | COM lifecycle singleton. Attach/detach ownership, headless mode, graceful shutdown. Refuses to start if another COM client is already bound. |
-| 2 | `project_identity.py` | Canonical file paths and SHA-256 project hash. All mutating tools validate the project identity before writing, so `switch_project` never silently corrupts the wrong `.mpp`. |
+| 2 | `project_identity.py` | Canonical file paths and SHA-256 project hash. Every mutating tool accepts an optional `project_id` (path or `hash_id`) and refuses to write if a different project is active. |
 | 3 | `verify_write.py` | Re-reads every field after mutation. Returns `{requested, actual, drifted}` so the caller can tell "write succeeded" from "write succeeded but Project recalculated the value." |
 | 4 | `calc_policy.py` | `deferred_calc` context manager. Suppresses automatic recalculation during batch writes so 40 field updates don't trigger 40 full recalcs on a 10k-task file. |
 | 5 | `task_store.py` | UniqueID-based task resolution on every access. Detects stale COM proxies (from save, switch, or insert) and re-resolves transparently. |
@@ -71,7 +71,11 @@ The server communicates over stdio. Start MS Project and open a `.mpp` file befo
 
 **Path confinement.** Set `MSPROJECT_SAFE_ROOT` to restrict all file operations (`open_project`, `save_project_as`, `export_csv`, etc.) to a directory tree. Unset = all file ops refused (fail-closed).
 
-**Dry-run mode.** Set `MSPROJECT_DRY_RUN=1` to prevent all mutations server-wide. Saves are skipped, destructive deletes short-circuit, and responses include `"status": "dry-run"`. This sits alongside WP-7's per-operation dry-run, acting as a deployment-level safety net.
+**Dry-run mode.** Set `MSPROJECT_DRY_RUN=1` (or `true`/`yes`/`on`) to prevent all mutations server-wide. The gate is applied to every mutating tool in one place (`src/tool_guardrails.py`); they return `"status": "dry-run"` without touching the project, and `bulk_update` is forced to `mode="dry_run"`. Session and view tools (`session_attach`, `switch_project`, `apply_filter`, `open_project`, ...) stay live.
+
+**One guardrail layer for every tool** (`src/tool_guardrails.py`): unknown argument names are rejected (`additionalProperties: false`), the ProjectSession attaches to a running Project on demand (never launching or hiding it), Project's Planning Wizard and alerts are suppressed during writes, and a modal-dialog watchdog cancels any dialog Project raises mid-call instead of hanging the server. Every failure has one shape: `isError: true` with a JSON body `{"error": "...", "error_type": "..."}`.
+
+**Correct COM usage.** Task edits act on COM objects, never on view rows, so a filter or sort cannot redirect a delete or indent to another task (move/copy, which need the clipboard, verify the selection first). Dates are sent as UTC-aware datetimes so pywin32 does not shift them by the local UTC offset; a date-only finish/deadline means the end of that working day. Durations use the project's `HoursPerDay`. Enum values (baselines, calculation mode, progress updates, timescales, link types, custom field IDs) come from the Project type library.
 
 **stderr-only logging.** All diagnostic output goes to stderr. No `print()` calls leak to stdout, which would corrupt the MCP stdio transport.
 
@@ -98,7 +102,8 @@ The server communicates over stdio. Start MS Project and open a `.mpp` file befo
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MSPROJECT_SAFE_ROOT` | *(unset = all file ops refused)* | Directory tree where file operations are allowed. Paths outside this root are rejected. |
-| `MSPROJECT_DRY_RUN` | `0` | Set to `1` to prevent all mutations server-wide. Saves are skipped and destructive operations return a dry-run preview. |
+| `MSPROJECT_DRY_RUN` | `0` | Set to `1` to prevent all mutations server-wide. Every mutating tool returns a dry-run preview. |
+| `MSPROJECT_AUTOSAVE` | `1` | Save the project after every mutating tool call. Set to `0` to keep changes unsaved (and keep Project's undo history, which every save clears). Untitled projects are never auto-saved. |
 
 ## Tool Inventory
 
@@ -156,7 +161,8 @@ The GitHub Actions workflow runs on Windows runners with MS Project installed. S
 ## Known Limitations
 
 - **COM proxy staleness:** Switching projects invalidates existing COM references. The WP-5 TaskStore handles this automatically, but legacy tools may need a `switch_project` call first.
-- **Undo stack:** `undo_last` supports up to 10 consecutive undos. COM undo is less reliable than the Project GUI's.
+- **Undo stack:** saving clears MS Project's undo history, so with autosave on (the default) `undo_last` has nothing to undo after a tool write and says so. Run with `MSPROJECT_AUTOSAVE=0` to use it.
+- **Moving/copying tasks:** Project has no COM move/copy API, so `move_task` and `copy_task_structure` use cut/copy/paste, which assigns new UniqueIDs (returned as `uid_map`; links are kept).
 - **File locking:** Only one process can hold the COM connection. Don't open Project's GUI dialogs while the server is active (or use headless mode via WP-1).
 - **Recurring tasks:** MS Project's `RecurringTaskInsert` is dialog-only in COM. The `add_recurring_task` tool simulates recurrence by creating individual occurrences under a summary task.
 - **Timephased data:** `get_timephased_data` can be slow on large date ranges. Keep queries to weeks or months, not years.

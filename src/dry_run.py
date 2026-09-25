@@ -4,16 +4,8 @@ MSPROJECT_DRY_RUN server-wide safety net (adapted from the 4nswer fork).
 When MSPROJECT_DRY_RUN=1, all mutation tools return what they WOULD do
 without executing.  Complementary to bulk_ops' per-operation dry-run mode.
 
-Usage in a tool function::
-
-    from src.dry_run import is_dry_run, dry_run_response
-
-    if is_dry_run():
-        return dry_run_response("save_project_as", {
-            "file_path": file_path,
-            "format": format,
-        })
-    # ... real implementation ...
+The gate is applied to every mutating tool in one place, src/tool_guardrails.py,
+so individual tools do not check it themselves.
 """
 
 import json
@@ -22,7 +14,7 @@ import os
 
 def is_dry_run() -> bool:
     """Return True if the server-wide dry-run env var is set."""
-    return os.environ.get("MSPROJECT_DRY_RUN", "").strip() in ("1", "true", "yes")
+    return os.environ.get("MSPROJECT_DRY_RUN", "").strip().lower() in ("1", "true", "yes", "on")
 
 
 def dry_run_response(tool_name: str, params: dict) -> str:

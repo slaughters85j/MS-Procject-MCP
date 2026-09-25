@@ -22,6 +22,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
+from .bulk_fields import normalized_or_error
+
 logger = logging.getLogger(__name__)
 
 
@@ -60,6 +62,7 @@ class ItemResult:
     fields_written: Dict[str, Any] = field(default_factory=dict)
     verification: Optional[dict] = None
     error: Optional[str] = None
+    current_values: Dict[str, Any] = field(default_factory=dict)  # dry run: values before the change
 
     def to_dict(self) -> dict:
         d = {
@@ -69,6 +72,8 @@ class ItemResult:
         }
         if self.fields_written:
             d["fields_written"] = self.fields_written
+        if self.current_values:
+            d["current_values"] = self.current_values
         if self.verification is not None:
             d["verification"] = self.verification
         if self.error is not None:
@@ -214,7 +219,11 @@ def dry_run(app, project, items: List[BulkItem], store) -> BulkResult:
             continue
 
         task = resolve.task
-        if _fields_already_match(task, item.fields):
+        fields, error = normalized_or_error(project, task, item.fields)
+        if error:
+            result.failed += 1
+            result.items.append(ItemResult(unique_id=uid, action=item.action.value, status="error", error=error))
+        elif _fields_already_match(task, fields):
             result.skipped += 1
             result.items.append(ItemResult(
                 unique_id=uid,
@@ -222,13 +231,13 @@ def dry_run(app, project, items: List[BulkItem], store) -> BulkResult:
                 status="skipped",
             ))
         else:
-            current = _read_current_fields(task, item.fields)
             result.succeeded += 1
             result.items.append(ItemResult(
                 unique_id=uid,
                 action=item.action.value,
                 status="ok",
-                fields_written=current,   # shows current values (would change)
+                fields_written=fields,                              # what apply would write
+                current_values=_read_current_fields(task, fields),  # what is there now
             ))
 
     return result
@@ -280,7 +289,7 @@ def apply(app, project, items: List[BulkItem], store) -> BulkResult:
     with deferred_calc(app):
         with ui_lock(app):
             for item in items:
-                ir = _apply_one(item, store, verify_task_write)
+                ir = _apply_one(item, store, verify_task_write, project)
                 result.items.append(ir)
                 if ir.status == "ok":
                     result.succeeded += 1
@@ -304,7 +313,7 @@ def apply(app, project, items: List[BulkItem], store) -> BulkResult:
     return result
 
 
-def _apply_one(item: BulkItem, store, verify_fn) -> ItemResult:
+def _apply_one(item: BulkItem, store, verify_fn, project=None) -> ItemResult:
     """
     Resolve, write, verify a single BulkItem.
 
@@ -323,9 +332,12 @@ def _apply_one(item: BulkItem, store, verify_fn) -> ItemResult:
         )
 
     task = resolve.task
+    fields, error = normalized_or_error(project, task, item.fields)
+    if error:
+        return ItemResult(unique_id=uid, action=item.action.value, status="error", error=error)
 
     # Idempotency check: skip if already matches
-    if _fields_already_match(task, item.fields):
+    if _fields_already_match(task, fields):
         return ItemResult(
             unique_id=uid,
             action=item.action.value,
@@ -334,7 +346,7 @@ def _apply_one(item: BulkItem, store, verify_fn) -> ItemResult:
 
     # Write fields
     written = {}
-    for name, value in item.fields.items():
+    for name, value in fields.items():
         try:
             setattr(task, name, value)
             written[name] = value
@@ -354,7 +366,7 @@ def _apply_one(item: BulkItem, store, verify_fn) -> ItemResult:
 
     # Verify-after-write
     try:
-        vresult = verify_fn(task, item.fields)
+        vresult = verify_fn(task, fields)
         verification = vresult.to_dict()
     except Exception as e:
         logger.error(

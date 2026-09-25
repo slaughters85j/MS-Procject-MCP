@@ -31,7 +31,9 @@ def register_session_tools(mcp):
         allow_attach_existing is True).
 
         Args:
-            headless: Run Project with Visible=False (default True).
+            headless: Run Project with Visible=False (default True). Only applies
+                to an instance this server launches; a running Project the
+                user opened is never hidden.
             allow_attach_existing: Attach to already-running Project
                 instead of refusing (default True).
 
@@ -39,6 +41,9 @@ def register_session_tools(mcp):
             Session info dict with state, owner PID, project path.
         """
         session = get_session()
+        if session.is_attached:
+            # Duplicate attach is a no-op, as ProjectSession.attach() documents.
+            return {**asdict(session.get_info()), "note": "already attached"}
 
         # Apply configuration via public API before attach
         session.configure(

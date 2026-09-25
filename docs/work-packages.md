@@ -198,6 +198,21 @@ Before any work package begins:
 
 ---
 
+### WP-9: COM correctness and tool guardrails
+
+**Objective:** Fix the defects found by testing every tool against a live MS Project instance.
+
+**Status:** Implemented and re-verified against live MS Project; awaiting user validation.
+
+**Key changes:**
+- `src/tool_guardrails.py`: strict arguments, dry-run gate for every mutating tool, optional `project_id` guard, one error contract, Planning Wizard suppression, modal-dialog watchdog (`src/modal_guard.py`)
+- `src/com_write.py`: UTC-safe COM dates (end-of-day finishes), `HoursPerDay`-based durations, save policy (`MSPROJECT_AUTOSAVE`, never on untitled projects), batched calc that restores the user's mode
+- Correct Project enums from the type library (calculation, baselines, UpdateProject, timescales, link types, custom field IDs)
+- Task edits via COM objects instead of view rows; move/copy verify the selection before cut/copy
+- Integration fixtures never attach to (or quit) a user's running Project
+
+---
+
 ## Not in scope (deferred)
 
 - Adding another 40 tools — stabilize the foundation first

@@ -1,3 +1,4 @@
+import pytest
 """
 Tests for response size management (src/response.py).
 
@@ -80,11 +81,14 @@ class TestPaginate:
         assert meta["next_offset"] == 100
         assert "hint" in meta
 
-    def test_negative_offset_clamped_to_zero(self):
-        items = list(range(10))
-        page, meta = paginate(items, offset=-5, limit=3)
-        assert page == [0, 1, 2]
-        assert meta["offset"] == 0
+    def test_negative_offset_rejected(self):
+        with pytest.raises(ValueError):
+            paginate(list(range(10)), offset=-5, limit=3)
+
+    def test_zero_limit_rejected(self):
+        """limit=0 would report truncated with next_offset == offset forever."""
+        with pytest.raises(ValueError):
+            paginate(list(range(10)), limit=0)
 
     def test_offset_clamped_to_total(self):
         items = list(range(5))

@@ -184,7 +184,8 @@ def main():
     pythoncom.CoInitialize()
 
     print("Launching MS Project...")
-    app = win32com.client.Dispatch("MSProject.Application")
+    # DispatchEx starts a private instance: Dispatch would attach to (then hide and quit) a running one.
+    app = win32com.client.DispatchEx("MSProject.Application")
     app.Visible = False
     app.DisplayAlerts = False
 

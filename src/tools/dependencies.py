@@ -1,11 +1,34 @@
 """
 Predecessor links: add, remove, inspect, and trace dependency chains.
+
+Links are created and removed through Task.TaskDependencies (COM objects), never by editing
+the Predecessors text, so list-separator locales and ID prefixes ("1" vs "12") cannot corrupt them.
 """
 
 import json
 
 from ..com_helpers import get_app, get_proj, _get_mpd, _fmt_date, _find_task
+from ..com_write import commit, batch_calc, LINK_TYPES
 from ..guards import format_response, _RESPONSE_MGMT
+
+
+def _link_spec(proj, succ_uid, pred_uid, link_type, lag_days):
+    """Validate one link. Returns (successor, predecessor, type code, lag minutes). Raises ValueError."""
+    code = LINK_TYPES.get(str(link_type).upper().strip())
+    if code is None:
+        raise ValueError(f"Invalid link_type '{link_type}'. Use FS, SS, FF, or SF.")
+    if succ_uid == pred_uid:
+        raise ValueError("A task cannot be its own predecessor.")
+    succ, pred = _find_task(proj, succ_uid), _find_task(proj, pred_uid)
+    if succ is None:
+        raise ValueError(f"Successor UniqueID {succ_uid} not found.")
+    if pred is None:
+        raise ValueError(f"Predecessor UniqueID {pred_uid} not found.")
+    for dep in succ.TaskDependencies:
+        if dep.From.UniqueID == pred_uid:
+            raise ValueError(f"UniqueID {pred_uid} is already a predecessor of {succ_uid}; "
+                             "remove it first to change the link type or lag.")
+    return succ, pred, code, round(float(lag_days) * _get_mpd(proj))
 
 
 def register_dependencies_tools(mcp):
@@ -16,7 +39,7 @@ def register_dependencies_tools(mcp):
         successor_unique_id:   int,
         predecessor_unique_id: int,
         link_type:             str = "FS",
-        lag_days:              int = 0,
+        lag_days:              float = 0,
     ) -> str:
         """
         Add a predecessor link between two tasks.
@@ -25,143 +48,77 @@ def register_dependencies_tools(mcp):
             successor_unique_id:   The task that depends on the predecessor.
             predecessor_unique_id: The task that must finish/start first.
             link_type:             'FS' (default), 'SS', 'FF', or 'SF'.
-            lag_days:              Lag in days (positive = lag, negative = lead).
+            lag_days:              Lag in working days (positive = lag, negative = lead).
         """
         app  = get_app()
         proj = get_proj(app)
-
-        uid_to_id = {t.UniqueID: t.ID for t in proj.Tasks if t is not None}
-
-        if successor_unique_id not in uid_to_id:
-            return json.dumps({"error": f"Successor UniqueID {successor_unique_id} not found."})
-        if predecessor_unique_id not in uid_to_id:
-            return json.dumps({"error": f"Predecessor UniqueID {predecessor_unique_id} not found."})
-
-        pred_id = uid_to_id[predecessor_unique_id]
-        succ_task = None
-        for t in proj.Tasks:
-            if t is not None and t.UniqueID == successor_unique_id:
-                succ_task = t
-                break
-
-        lag_str = ""
-        if lag_days > 0:
-            lag_str = f"+{lag_days}d"
-        elif lag_days < 0:
-            lag_str = f"{lag_days}d"
-
-        existing = succ_task.Predecessors.strip()
-        new_pred  = f"{pred_id}{link_type}{lag_str}"
-
-        if existing:
-            succ_task.Predecessors = existing + "," + new_pred
-        else:
-            succ_task.Predecessors = new_pred
-
-        app.FileSave()
+        succ, pred, code, lag = _link_spec(proj, successor_unique_id, predecessor_unique_id, link_type, lag_days)
+        succ.TaskDependencies.Add(From=pred, Type=code, Lag=lag)
+        commit(app, proj)
         return json.dumps({
             "status":       "linked",
             "successor":    successor_unique_id,
             "predecessor":  predecessor_unique_id,
-            "link":         new_pred,
-            "predecessors": succ_task.Predecessors,
+            "link_type":    str(link_type).upper(),
+            "lag_days":     lag_days,
+            "predecessors": succ.Predecessors,
         }, indent=2)
-
 
     @mcp.tool()
     def bulk_add_predecessors(links_json: str) -> str:
         """
-        Add multiple predecessor links in one call.
+        Add multiple predecessor links in one call. Each link is validated and added
+        independently; failures are reported per item and do not stop the others.
 
         Args:
             links_json: JSON string — list of link objects:
                 [{successor_unique_id, predecessor_unique_id, link_type (default "FS"), lag_days (default 0)}]
                 Example: '[{"successor_unique_id": 10, "predecessor_unique_id": 5, "link_type": "FS"}]'
         """
+        from ..tool_guardrails import _describe_exception
         links = json.loads(links_json)
-        app   = get_app()
-        proj  = get_proj(app)
-
-        uid_to_id = {t.UniqueID: t.ID for t in proj.Tasks if t is not None}
-        uid_to_task = {t.UniqueID: t for t in proj.Tasks if t is not None}
-
-        linked = 0
-        errors = []
-
-        for link in links:
-            succ_uid = link["successor_unique_id"]
-            pred_uid = link["predecessor_unique_id"]
-            lt       = link.get("link_type", "FS")
-            lag      = link.get("lag_days", 0)
-
-            if succ_uid not in uid_to_id:
-                errors.append({"successor_unique_id": succ_uid, "error": "not found"})
-                continue
-            if pred_uid not in uid_to_id:
-                errors.append({"predecessor_unique_id": pred_uid, "error": "not found"})
-                continue
-
-            pred_id   = uid_to_id[pred_uid]
-            succ_task = uid_to_task[succ_uid]
-
-            lag_str = ""
-            if lag > 0:
-                lag_str = f"+{lag}d"
-            elif lag < 0:
-                lag_str = f"{lag}d"
-
-            new_pred = f"{pred_id}{lt}{lag_str}"
-            existing = succ_task.Predecessors.strip()
-
-            if existing:
-                succ_task.Predecessors = existing + "," + new_pred
-            else:
-                succ_task.Predecessors = new_pred
-
-            linked += 1
-
-        app.FileSave()
-        return json.dumps({
-            "linked": linked,
-            "errors": errors,
-        }, indent=2)
-
+        if not isinstance(links, list):
+            raise ValueError("links_json must be a JSON array of link objects.")
+        app  = get_app()
+        proj = get_proj(app)
+        linked, errors = 0, []
+        with batch_calc(app):
+            for i, link in enumerate(links):
+                try:
+                    if not isinstance(link, dict):
+                        raise ValueError("item must be an object.")
+                    succ, pred, code, lag = _link_spec(
+                        proj, link.get("successor_unique_id"), link.get("predecessor_unique_id"),
+                        link.get("link_type", "FS"), link.get("lag_days", 0))
+                    succ.TaskDependencies.Add(From=pred, Type=code, Lag=lag)
+                    linked += 1
+                except Exception as e:
+                    errors.append({"index": i, "link": link, "error": _describe_exception(e)[0]})
+        commit(app, proj)
+        return json.dumps({"linked": linked, "errors": errors}, indent=2)
 
     @mcp.tool()
     def remove_predecessor(
         successor_unique_id:   int,
         predecessor_unique_id: int,
     ) -> str:
-        """Remove a specific predecessor link from a task."""
+        """Remove the one predecessor link from predecessor_unique_id to successor_unique_id."""
         app  = get_app()
         proj = get_proj(app)
-
-        uid_to_id = {t.UniqueID: t.ID for t in proj.Tasks if t is not None}
-
-        if successor_unique_id not in uid_to_id:
+        succ = _find_task(proj, successor_unique_id)
+        if succ is None:
             return json.dumps({"error": f"Successor UniqueID {successor_unique_id} not found."})
-
-        pred_id   = uid_to_id.get(predecessor_unique_id)
-        succ_task = None
-        for t in proj.Tasks:
-            if t is not None and t.UniqueID == successor_unique_id:
-                succ_task = t
-                break
-
-        existing = succ_task.Predecessors.strip()
-        if not existing:
-            return json.dumps({"status": "no_change", "message": "Task has no predecessors."})
-
-        parts     = [p.strip() for p in existing.split(",")]
-        filtered  = [p for p in parts if not p.startswith(str(pred_id))]
-        succ_task.Predecessors = ",".join(filtered)
-
-        app.FileSave()
+        match = next((d for d in succ.TaskDependencies if d.From.UniqueID == predecessor_unique_id), None)
+        if match is None:
+            return json.dumps({"error": f"UniqueID {predecessor_unique_id} is not a predecessor of "
+                                        f"{successor_unique_id}. Current: {succ.Predecessors or '(none)'}"})
+        match.Delete()
+        commit(app, proj)
         return json.dumps({
             "status":              "unlinked",
             "successor":           successor_unique_id,
             "removed_predecessor": predecessor_unique_id,
-            "predecessors_now":    succ_task.Predecessors,
+            "predecessors_now":    succ.Predecessors,
         }, indent=2)
 
 

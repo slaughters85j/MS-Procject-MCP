@@ -7,6 +7,7 @@ import datetime
 import logging
 
 from .guards import com_call, is_com_busy, get_session
+from .com_write import minutes_per_day
 
 logger = logging.getLogger(__name__)
 
@@ -91,15 +92,15 @@ def get_proj(app):
 
 
 def _get_mpd(proj):
-    """Get MinutesPerDay safely (falls back to 480 for freshly-imported XML)."""
-    try:
-        return proj.MinutesPerDay
-    except Exception:
-        return 480
+    """Working minutes per day, from HoursPerDay (the COM Project object has no MinutesPerDay)."""
+    return minutes_per_day(proj)
 
 
 def _parse_date(s):
-    """Parse YYYY-MM-DD string to datetime for COM. Returns None if empty."""
+    """
+    Parse YYYY-MM-DD to a naive datetime for comparisons with _to_naive() COM dates.
+    Returns None if empty. Never pass the result to COM: use com_write.to_com_date for writes.
+    """
     if not s:
         return None
     return datetime.datetime.strptime(s, "%Y-%m-%d")
@@ -125,10 +126,11 @@ def task_to_dict(t, proj):
     # Reverse map for task type integers
     TASK_TYPE_NAMES = {0: "FixedUnits", 1: "FixedDuration", 2: "FixedWork"}
 
-    # Safe reads for fields that may not be available on all task types
+    # Safe reads for fields that may not be available on all task types.
+    # The property is read inside safe() (via getattr) so a COM error is actually caught.
     def safe(prop, default=None):
         try:
-            return prop
+            return getattr(t, prop)
         except Exception:
             return default
 
@@ -144,17 +146,17 @@ def task_to_dict(t, proj):
         "finish":                 fmt(t.Finish),
         "duration_days":          round(t.Duration / mpd, 2) if t.Duration else 0,
         "percent_complete":       t.PercentComplete,
-        "actual_start":           fmt(safe(t.ActualStart)),
-        "actual_finish":          fmt(safe(t.ActualFinish)),
-        "remaining_duration_days": round(safe(t.RemainingDuration, 0) / mpd, 2),
-        "total_slack_days":       round(safe(t.TotalSlack, 0) / mpd, 2),
-        "free_slack_days":        round(safe(t.FreeSlack, 0) / mpd, 2),
-        "deadline":               fmt(safe(t.Deadline)),
-        "priority":               safe(t.Priority, 500),
-        "constraint_type":        CONSTRAINT_NAMES.get(safe(t.ConstraintType, 0), "ASAP"),
-        "constraint_date":        fmt(safe(t.ConstraintDate)),
-        "manual":                 bool(safe(t.Manual, False)),
-        "type":                   TASK_TYPE_NAMES.get(safe(t.Type, 0), "FixedUnits"),
+        "actual_start":           fmt(safe("ActualStart")),
+        "actual_finish":          fmt(safe("ActualFinish")),
+        "remaining_duration_days": round(safe("RemainingDuration", 0) / mpd, 2),
+        "total_slack_days":       round(safe("TotalSlack", 0) / mpd, 2),
+        "free_slack_days":        round(safe("FreeSlack", 0) / mpd, 2),
+        "deadline":               fmt(safe("Deadline")),
+        "priority":               safe("Priority", 500),
+        "constraint_type":        CONSTRAINT_NAMES.get(safe("ConstraintType", 0), "ASAP"),
+        "constraint_date":        fmt(safe("ConstraintDate")),
+        "manual":                 bool(safe("Manual", False)),
+        "type":                   TASK_TYPE_NAMES.get(safe("Type", 0), "FixedUnits"),
         "predecessors":           t.Predecessors,
         "resource_names":         t.ResourceNames,
         "notes":                  t.Notes,
@@ -166,8 +168,8 @@ def task_to_dict(t, proj):
         "text3":                  t.Text3 or "",
         "flag1":                  bool(t.Flag1),
         "flag2":                  bool(t.Flag2),
-        "hyperlink":              safe(t.HyperlinkAddress, "") or "",
-        "hyperlink_text":         safe(t.Hyperlink, "") or "",
+        "hyperlink":              safe("HyperlinkAddress", "") or "",
+        "hyperlink_text":         safe("Hyperlink", "") or "",
     }
 
 
@@ -199,6 +201,18 @@ def _to_naive(dt):
     return dt
 
 
+def is_overdue(t, now):
+    """The one overdue definition: a non-summary task (milestones included) below 100% whose Finish is past."""
+    finish = _to_naive(t.Finish)
+    return (not t.Summary and t.PercentComplete < 100
+            and isinstance(finish, datetime.datetime) and finish < now)
+
+
+def assigned_resource_names(t):
+    """Resource names on a task, exact, without unit suffixes ('Bob[50%]' -> 'Bob')."""
+    return [a.ResourceName for a in t.Assignments]
+
+
 def _find_task(proj, unique_id):
     """Find a task by UniqueID. Returns the COM Task object or None."""
     for t in proj.Tasks:
@@ -207,29 +221,22 @@ def _find_task(proj, unique_id):
     return None
 
 
-def _custom_field_id(field_name):
+def _custom_field_id(app, field_name):
     """
     Map field name like 'Text5', 'Number1', 'Flag3', 'Date1', 'Duration2'
-    to the COM pjCustomTask* field ID constant.
-    Returns (field_id, field_type) or raises ValueError.
+    to the COM pjCustomTask* field ID constant, looked up from Project itself
+    (the IDs are not contiguous, e.g. Text2 = Text1 + 3 and Text11 jumps further).
+    Returns (field_id, field_type, canonical_name) or raises ValueError.
     """
     name = field_name.strip()
     lower = name.lower()
 
-    # COM field ID bases (pjCustomTask* constants)
-    bases = {
-        "text":     (188743731, 30),   # Text1-30
-        "number":   (188743767, 20),   # Number1-20
-        "date":     (188743945, 10),   # Date1-10
-        "flag":     (188743752, 20),   # Flag1-20
-        "duration": (188743783, 10),   # Duration1-10
-    }
+    limits = {"text": 30, "number": 20, "date": 10, "flag": 20, "duration": 10}
 
-    for prefix, (base_id, max_n) in bases.items():
+    for prefix, max_n in limits.items():
         if lower.startswith(prefix):
             num_str = lower[len(prefix):]
-            if num_str.isdigit():
-                num = int(num_str)
-                if 1 <= num <= max_n:
-                    return base_id + (num - 1), prefix
+            if num_str.isdigit() and 1 <= int(num_str) <= max_n:
+                canonical = prefix.capitalize() + str(int(num_str))
+                return app.FieldNameToFieldConstant(canonical), prefix, canonical
     raise ValueError(f"Unknown custom field: '{field_name}'. Use Text1-30, Number1-20, Date1-10, Flag1-20, Duration1-10.")

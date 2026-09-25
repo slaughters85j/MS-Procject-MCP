@@ -4,7 +4,8 @@ Read-only task lookups: paged task lists, single tasks, RAG, overdue, per-resour
 
 import json
 
-from ..com_helpers import get_app, get_proj, task_to_dict, _to_naive
+from ..com_helpers import get_app, get_proj, task_to_dict, _to_naive, is_overdue, assigned_resource_names
+from ..com_write import validate_rag
 from ..guards import prepare_task_response, DEFAULT_PAGE_LIMIT, _RESPONSE_MGMT
 
 
@@ -74,13 +75,14 @@ def register_task_query_tools(mcp):
         Return tasks filtered by RAG status stored in the Text1 custom field.
         rag: 'Red', 'Amber', or 'Green'
         """
+        rag  = validate_rag(rag)
         app  = get_app()
         proj = get_proj(app)
 
         results = []
         for t in proj.Tasks:
             if t is not None and not t.Summary:
-                if (t.Text1 or "").strip().lower() == rag.strip().lower():
+                if (t.Text1 or "").strip().lower() == rag.lower():
                     results.append(task_to_dict(t, proj))
 
         return json.dumps({"rag": rag, "count": len(results), "tasks": results}, indent=2)
@@ -88,39 +90,29 @@ def register_task_query_tools(mcp):
 
     @mcp.tool()
     def get_overdue_tasks() -> str:
-        """Return incomplete tasks whose Finish date is in the past."""
+        """
+        Return overdue tasks: non-summary tasks (milestones included) below 100% complete
+        whose Finish date is in the past. Same definition as get_progress_summary's overdue count.
+        """
         import datetime
-        today = datetime.datetime.now()
-        app   = get_app()
-        proj  = get_proj(app)
-
-        results = []
-        for t in proj.Tasks:
-            if t is None or t.Summary or t.Milestone:
-                continue
-            if t.PercentComplete >= 100:
-                continue
-            try:
-                finish = _to_naive(t.Finish)
-                if finish and finish < today:
-                    results.append(task_to_dict(t, proj))
-            except Exception:
-                continue
-
+        now  = datetime.datetime.now()
+        app  = get_app()
+        proj = get_proj(app)
+        results = [task_to_dict(t, proj) for t in proj.Tasks if t is not None and is_overdue(t, now)]
         return json.dumps({"count": len(results), "tasks": results}, indent=2)
 
 
     @mcp.tool()
     def get_tasks_by_resource(resource_name: str) -> str:
-        """Return all tasks assigned to a named resource (case-insensitive substring match)."""
+        """Return all tasks assigned to a named resource (case-insensitive exact name match)."""
         app  = get_app()
         proj = get_proj(app)
 
         results = []
-        name_lower = resource_name.lower()
+        name_lower = resource_name.strip().lower()
         for t in proj.Tasks:
             if t is not None and not t.Summary:
-                if name_lower in (t.ResourceNames or "").lower():
+                if name_lower in [n.lower() for n in assigned_resource_names(t)]:
                     results.append(task_to_dict(t, proj))
 
         return json.dumps({

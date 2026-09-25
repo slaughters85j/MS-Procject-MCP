@@ -3,9 +3,24 @@ Resource workload, availability, leveling, and cost rate tables.
 """
 
 import json
+from typing import Literal
 
-from ..com_helpers import get_app, get_proj, _parse_date, _fmt_date
-from ..guards import is_dry_run, dry_run_response
+from ..com_helpers import get_app, get_proj, _fmt_date, _to_naive
+from ..com_write import parse_iso, to_com_date, commit, resolve_resource, invoke_positional, TIMESCALES
+
+RATE_TABLES = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5}
+PJ_RESOURCE_TIMESCALED_WORK = 13
+
+
+def _date_range(start_date, end_date, required=False):
+    """Parse an optional/required YYYY-MM-DD range. Raises ValueError on bad or reversed dates."""
+    if required and not (start_date and end_date):
+        raise ValueError("start_date and end_date are both required (YYYY-MM-DD).")
+    start = parse_iso(start_date, "start_date")[0] if start_date else None
+    end = parse_iso(end_date, "end_date")[0] if end_date else None
+    if start and end and end < start:
+        raise ValueError(f"end_date {end_date} is before start_date {start_date}.")
+    return start, end
 
 
 def register_resource_planning_tools(mcp):
@@ -15,102 +30,57 @@ def register_resource_planning_tools(mcp):
     def get_resource_workload(resource_name: str, start_date: str = "", end_date: str = "") -> str:
         """
         Resource allocation view with conflict detection.
-        Shows all assignments for a resource and identifies overlapping assignments.
+        Shows the resource's assignments (optionally only those overlapping a date range)
+        and identifies overlapping assignments.
 
         Args:
             resource_name: Resource name (case-insensitive exact match).
-            start_date:    Filter assignments starting after this date (YYYY-MM-DD, optional).
-            end_date:      Filter assignments ending before this date (YYYY-MM-DD, optional).
+            start_date:    Only assignments finishing on/after this date (YYYY-MM-DD, optional).
+            end_date:      Only assignments starting on/before this date (YYYY-MM-DD, optional).
         """
         app  = get_app()
         proj = get_proj(app)
-
-        # Find resource
-        resource = None
-        for r in proj.Resources:
-            if r is not None and r.Name.lower() == resource_name.lower():
-                resource = r
-                break
-
-        if resource is None:
-            # List available resources
-            avail = []
-            for r in proj.Resources:
-                if r is not None:
-                    avail.append(r.Name)
-            return json.dumps({"error": f"Resource '{resource_name}' not found. Available: {avail}"})
-
-        filter_start = _parse_date(start_date) if start_date else None
-        filter_end   = _parse_date(end_date) if end_date else None
+        resource = resolve_resource(proj, resource_name)
+        filter_start, filter_end = _date_range(start_date, end_date)
+        if filter_end:
+            filter_end = filter_end.replace(hour=23, minute=59)
 
         assignments = []
         for a in resource.Assignments:
-            try:
-                a_start  = a.Start
-                a_finish = a.Finish
-                task     = a.Task
-
-                if filter_start and a_finish and a_finish < filter_start:
-                    continue
-                if filter_end and a_start and a_start > filter_end:
-                    continue
-
-                work_hours = 0
-                try:
-                    work_hours = round(a.Work / 60, 2)  # minutes to hours
-                except Exception:
-                    pass
-
-                assignments.append({
-                    "task_unique_id": task.UniqueID if task else None,
-                    "task_name":      task.Name if task else "(unknown)",
-                    "start":          _fmt_date(a_start),
-                    "finish":         _fmt_date(a_finish),
-                    "units":          a.Units,
-                    "work_hours":     work_hours,
-                })
-            except Exception:
+            a_start, a_finish, task = _to_naive(a.Start), _to_naive(a.Finish), a.Task
+            if filter_start and a_finish and a_finish < filter_start:
                 continue
+            if filter_end and a_start and a_start > filter_end:
+                continue
+            assignments.append({
+                "task_unique_id": task.UniqueID if task else None,
+                "task_name":      task.Name if task else "(unknown)",
+                "start":          _fmt_date(a_start),
+                "finish":         _fmt_date(a_finish),
+                "units":          a.Units,
+                "work_hours":     round((a.Work or 0) / 60, 2),
+            })
 
-        # Conflict detection: find overlapping date ranges
         conflicts = []
-        for i in range(len(assignments)):
-            for j in range(i + 1, len(assignments)):
-                a = assignments[i]
-                b = assignments[j]
-                if a["start"] and a["finish"] and b["start"] and b["finish"]:
-                    if a["start"] <= b["finish"] and b["start"] <= a["finish"]:
-                        overlap_start = max(a["start"], b["start"])
-                        overlap_finish = min(a["finish"], b["finish"])
-                        combined = (a.get("units") or 0) + (b.get("units") or 0)
-                        conflicts.append({
-                            "task_a":          a["task_name"],
-                            "task_b":          b["task_name"],
-                            "overlap_start":   overlap_start,
-                            "overlap_finish":  overlap_finish,
-                            "combined_units":  combined,
-                        })
-
-        overallocated = False
-        try:
-            overallocated = bool(resource.Overallocated)
-        except Exception:
-            pass
-
-        max_units = 1.0
-        try:
-            max_units = resource.MaxUnits
-        except Exception:
-            pass
+        for i, a in enumerate(assignments):
+            for b in assignments[i + 1:]:
+                if a["start"] and a["finish"] and b["start"] and b["finish"] \
+                        and a["start"] <= b["finish"] and b["start"] <= a["finish"]:
+                    conflicts.append({
+                        "task_a":         a["task_name"],
+                        "task_b":         b["task_name"],
+                        "overlap_start":  max(a["start"], b["start"]),
+                        "overlap_finish": min(a["finish"], b["finish"]),
+                        "combined_units": (a.get("units") or 0) + (b.get("units") or 0),
+                    })
 
         return json.dumps({
-            "resource":      resource.Name,
-            "overallocated": overallocated,
-            "max_units":     max_units,
-            "assignments":   assignments,
-            "conflicts":     conflicts,
+            "resource":                 resource.Name,
+            "overallocated_in_project": bool(resource.Overallocated),
+            "max_units":                resource.MaxUnits,
+            "assignments":              assignments,
+            "conflicts":                conflicts,
         }, indent=2)
-
 
     @mcp.tool()
     def level_resources() -> str:
@@ -118,84 +88,42 @@ def register_resource_planning_tools(mcp):
         Run MS Project's built-in resource leveling algorithm.
         WARNING: This may shift task dates. Save a baseline first if tracking variance.
         """
-        if is_dry_run():
-            return dry_run_response("level_resources", {})
         app  = get_app()
         proj = get_proj(app)
-
         app.LevelNow()
-        app.FileSave()
-
-        return json.dumps({
-            "status":  "leveled",
-            "project": proj.Name,
-        }, indent=2)
-
+        commit(app, proj)
+        return json.dumps({"status": "leveled", "project": proj.Name}, indent=2)
 
     @mcp.tool()
     def get_resource_availability(
         resource_name: str,
         start_date:    str,
         end_date:      str,
-        timescale:     str = "weekly",
+        timescale:     Literal["daily", "weekly", "monthly"] = "weekly",
     ) -> str:
         """
-        Show resource allocation vs capacity per period. Shows max units, allocated
-        work, and free capacity windows.
+        Show resource allocation vs capacity per period: max units and allocated work per period.
 
         Args:
             resource_name: Name of the resource.
             start_date:    Period start as YYYY-MM-DD.
-            end_date:      Period end as YYYY-MM-DD.
+            end_date:      Period end as YYYY-MM-DD (not before start_date).
             timescale:     'daily', 'weekly', or 'monthly' (default 'weekly').
         """
         app  = get_app()
         proj = get_proj(app)
-
-        TIMESCALE_MAP = {"daily": 3, "weekly": 4, "monthly": 5}
-        ts = TIMESCALE_MAP.get(timescale.lower())
-        if ts is None:
-            return json.dumps({"error": f"Unknown timescale '{timescale}'. Use: daily, weekly, monthly."})
-
-        res = None
-        for r in proj.Resources:
-            if r is not None and r.Name and r.Name.lower() == resource_name.lower():
-                res = r
-                break
-        if res is None:
-            return json.dumps({"error": f"Resource '{resource_name}' not found."})
-
-        sd = _parse_date(start_date)
-        ed = _parse_date(end_date)
-
-        max_units = res.MaxUnits  # e.g. 1.0 = 100%
-
-        periods = []
-        try:
-            # Resource TimeScaleData types differ from Task types:
-            # Type 13 = pjResourceTimescaledWork (minutes), Type 4 = Availability (units)
-            tsd = res.TimeScaleData(sd, ed, 13, ts)
-            for item in tsd:
-                try:
-                    val = item.Value
-                    allocated_hrs = float(val) / 60.0 if val else 0.0
-                except Exception:
-                    allocated_hrs = 0.0
-                periods.append({
-                    "start":          _fmt_date(item.StartDate),
-                    "end":            _fmt_date(item.EndDate),
-                    "allocated_hours": round(allocated_hrs, 2),
-                })
-        except Exception as e:
-            return json.dumps({"error": f"TimeScaleData failed: {e}"})
-
-        return json.dumps({
-            "resource":  res.Name,
-            "max_units": max_units,
-            "timescale": timescale,
-            "periods":   periods,
-        }, indent=2)
-
+        _date_range(start_date, end_date, required=True)
+        res = resolve_resource(proj, resource_name)
+        tsd = res.TimeScaleData(to_com_date(proj, start_date, field="start_date"),
+                                to_com_date(proj, end_date, end_of_day=True, field="end_date"),
+                                PJ_RESOURCE_TIMESCALED_WORK, TIMESCALES[timescale])
+        periods = [{
+            "start":           _fmt_date(item.StartDate),
+            "end":             _fmt_date(item.EndDate),
+            "allocated_hours": round(float(item.Value) / 60.0, 2) if item.Value not in ("", None) else 0.0,
+        } for item in tsd]
+        return json.dumps({"resource": res.Name, "max_units": res.MaxUnits, "timescale": timescale,
+                           "periods": periods}, indent=2)
 
     @mcp.tool()
     def get_resource_rate_tables(resource_name: str) -> str:
@@ -207,38 +135,16 @@ def register_resource_planning_tools(mcp):
         """
         app  = get_app()
         proj = get_proj(app)
-
-        res = None
-        for r in proj.Resources:
-            if r is not None and r.Name and r.Name.lower() == resource_name.lower():
-                res = r
-                break
-        if res is None:
-            return json.dumps({"error": f"Resource '{resource_name}' not found."})
-
+        res = resolve_resource(proj, resource_name)
         tables = {}
-        TABLE_NAMES = ["A", "B", "C", "D", "E"]
-
-        for idx, tname in enumerate(TABLE_NAMES):
-            try:
-                table = res.CostRateTables(idx + 1)
-                rates = []
-                for pay_rate in table.PayRates:
-                    rates.append({
-                        "effective_date":  _fmt_date(pay_rate.EffectiveDate),
-                        "standard_rate":   str(pay_rate.StandardRate),
-                        "overtime_rate":   str(pay_rate.OvertimeRate),
-                        "cost_per_use":    float(pay_rate.CostPerUse) if pay_rate.CostPerUse else 0.0,
-                    })
-                tables[tname] = rates
-            except Exception:
-                tables[tname] = []
-
-        return json.dumps({
-            "resource": res.Name,
-            "tables":   tables,
-        }, indent=2)
-
+        for name, index in RATE_TABLES.items():
+            tables[name] = [{
+                "effective_date": _fmt_date(pay_rate.EffectiveDate),
+                "standard_rate":  str(pay_rate.StandardRate),
+                "overtime_rate":  str(pay_rate.OvertimeRate),
+                "cost_per_use":   str(pay_rate.CostPerUse),  # formatted currency string, e.g. "$0.00"
+            } for pay_rate in res.CostRateTables(index).PayRates]
+        return json.dumps({"resource": res.Name, "tables": tables}, indent=2)
 
     @mcp.tool()
     def set_resource_rate_table(
@@ -260,55 +166,44 @@ def register_resource_planning_tools(mcp):
             cost_per_use:   Per-use cost (default -1 = don't change).
             effective_date: When this rate takes effect (YYYY-MM-DD). Empty = first entry.
         """
-        app  = get_app()
-        proj = get_proj(app)
-
-        TABLE_MAP = {"A": 1, "B": 2, "C": 3, "D": 4, "E": 5}
-        tbl_idx = TABLE_MAP.get(table.upper())
+        tbl_idx = RATE_TABLES.get(table.upper())
         if tbl_idx is None:
             return json.dumps({"error": f"Invalid table '{table}'. Use A-E."})
+        if not standard_rate and not overtime_rate and cost_per_use < 0:
+            return json.dumps({"error": "Nothing to set: give standard_rate, overtime_rate or cost_per_use."})
+        app  = get_app()
+        proj = get_proj(app)
+        res = resolve_resource(proj, resource_name)
+        pay_rates = res.CostRateTables(tbl_idx).PayRates
 
-        res = None
-        for r in proj.Resources:
-            if r is not None and r.Name and r.Name.lower() == resource_name.lower():
-                res = r
-                break
-        if res is None:
-            return json.dumps({"error": f"Resource '{resource_name}' not found."})
+        def row_for(date_text):
+            return next((i for i in range(1, pay_rates.Count + 1)
+                         if str(pay_rates(i).EffectiveDate)[:10] == date_text), None)
 
-        try:
-            rate_table = res.CostRateTables(tbl_idx)
-            pay_rates  = rate_table.PayRates
-
-            if effective_date:
-                # Add a new rate entry with effective date
-                ed = _parse_date(effective_date)
-                new_rate = pay_rates.Add(ed)
-                if standard_rate:
-                    new_rate.StandardRate = standard_rate
-                if overtime_rate:
-                    new_rate.OvertimeRate = overtime_rate
-                if cost_per_use >= 0:
-                    new_rate.CostPerUse = cost_per_use
-            else:
-                # Update the first (default) rate entry
-                first = pay_rates(1)
-                if standard_rate:
-                    first.StandardRate = standard_rate
-                if overtime_rate:
-                    first.OvertimeRate = overtime_rate
-                if cost_per_use >= 0:
-                    first.CostPerUse = cost_per_use
-
-            app.FileSave()
-            return json.dumps({
-                "status":   "updated",
-                "resource": res.Name,
-                "table":    table.upper(),
-                "standard_rate": standard_rate or "(unchanged)",
-                "overtime_rate": overtime_rate or "(unchanged)",
-                "cost_per_use":  cost_per_use if cost_per_use >= 0 else "(unchanged)",
-            }, indent=2)
-
-        except Exception as e:
-            return json.dumps({"error": f"Failed to update rate table: {e}"})
+        index = row_for(effective_date) if effective_date else 1
+        if index is None:
+            # New row: rates go in as Add() arguments. Writing them to the object Add() returns
+            # corrupts the table (it rewrites row 1 and leaves a bogus row behind).
+            invoke_positional(pay_rates, "Add", to_com_date(proj, effective_date, field="effective_date"),
+                              standard_rate or None, overtime_rate or None,
+                              cost_per_use if cost_per_use >= 0 else None)
+            index = row_for(effective_date)
+        else:
+            row = pay_rates(index)
+            if standard_rate:
+                row.StandardRate = standard_rate
+            if overtime_rate:
+                row.OvertimeRate = overtime_rate
+            if cost_per_use >= 0:
+                row.CostPerUse = cost_per_use
+        entry = pay_rates(index)
+        commit(app, proj)
+        return json.dumps({
+            "status":         "updated",
+            "resource":       res.Name,
+            "table":          table.upper(),
+            "effective_date": _fmt_date(entry.EffectiveDate),
+            "standard_rate":  str(entry.StandardRate),
+            "overtime_rate":  str(entry.OvertimeRate),
+            "cost_per_use":   str(entry.CostPerUse),
+        }, indent=2)

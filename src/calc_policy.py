@@ -6,9 +6,11 @@ calculation during batch operations so that 40 COM writes + 1 calc
 is faster than 40 writes with auto-calc on a 10k-task file.
 
 MS Project COM constants:
-- pjAutomatic = 0   (Application.Calculation)
-- pjManual = 1
-- pjCalculate = 0   (Application.CalculateAll)
+- pjAutomatic = -1  (Application.Calculation, PjCalculation enum)
+- pjManual = 0
+- Application.CalculateProject() recalculates the active project;
+  Application.CalculateAll() recalculates every open project.
+  (Project objects have no Calculate() method.)
 
 NOTE: Testing against live MS Project remains required.
 
@@ -29,8 +31,8 @@ logger = logging.getLogger(__name__)
 
 class CalcMode(IntEnum):
     """MS Project calculation modes (maps to pjCalculation enum)."""
-    AUTOMATIC = 0   # pjAutomatic
-    MANUAL = 1      # pjManual
+    AUTOMATIC = -1  # pjAutomatic
+    MANUAL = 0      # pjManual
 
 
 @dataclass
@@ -142,8 +144,8 @@ def calculate_project(app, project=None) -> dict:
     """
     Trigger an explicit full recalculation.
 
-    If project is given, recalculates that project only via
-    Project.Calculate(). Otherwise calls Application.CalculateAll().
+    If project is given, activates it and recalculates it via
+    Application.CalculateProject(). Otherwise calls Application.CalculateAll().
 
     Args:
         app: COM Application object.
@@ -155,7 +157,8 @@ def calculate_project(app, project=None) -> dict:
     scope = "project" if project else "all"
     try:
         if project:
-            project.Calculate()
+            project.Activate()
+            app.CalculateProject()
         else:
             app.CalculateAll()
     except Exception as e:

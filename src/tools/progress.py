@@ -4,7 +4,7 @@ Progress reporting: summary, WBS roll-up, WBS structure, and actual work.
 
 import json
 
-from ..com_helpers import get_app, get_proj, _get_mpd, _fmt_date, _to_naive
+from ..com_helpers import get_app, get_proj, _get_mpd, _fmt_date, _to_naive, is_overdue
 from ..guards import format_response, _RESPONSE_MGMT
 
 
@@ -49,12 +49,8 @@ def register_progress_tools(mcp):
             if t.Critical:
                 critical += 1
 
-            try:
-                fin = _to_naive(t.Finish)
-                if fin and fin < today and pct < 100:
-                    overdue += 1
-            except Exception:
-                pass
+            if is_overdue(t, today):
+                overdue += 1
 
         total = not_started + in_progress + complete
 

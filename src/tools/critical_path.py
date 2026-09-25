@@ -166,6 +166,7 @@ def register_critical_path_tools(mcp):
         period_end   = _parse_date(end_date)
         if not period_start or not period_end:
             return json.dumps({"error": "Both start_date and end_date are required (YYYY-MM-DD)."})
+        period_end = period_end.replace(hour=23, minute=59)  # inclusive of the whole end day
 
         critical_tasks = []
         critical_milestones = []

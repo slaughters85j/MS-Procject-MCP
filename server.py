@@ -43,6 +43,7 @@ CORE_TOOL_MODULES = (
     ("src.tools.task_filter", "register_task_filter_tools"),
     ("src.tools.task_write", "register_task_write_tools"),
     ("src.tools.task_structure", "register_task_structure_tools"),
+    ("src.tools.task_placement", "register_task_placement_tools"),
     ("src.tools.scheduling", "register_scheduling_tools"),
     ("src.tools.dependencies", "register_dependencies_tools"),
     ("src.tools.resources", "register_resources_tools"),
@@ -140,6 +141,13 @@ try:
 except Exception as _e:
     logger.warning("ToolAnnotations application failed (harmless): %s", _e)
     _tools_annotated = 0
+
+# ---------------------------------------------------------------------------
+# Guardrails: strict args, dry-run gate, project_id guard, error contract,
+# modal-dialog watchdog. Must run AFTER annotations (it reads readOnlyHint).
+# ---------------------------------------------------------------------------
+from src.tool_guardrails import apply_guardrails  # noqa: E402
+_tools_guarded = apply_guardrails(mcp)
 
 
 # ---------------------------------------------------------------------------

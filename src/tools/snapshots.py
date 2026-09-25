@@ -5,7 +5,7 @@ JSON snapshots of a project and diffs between two snapshots.
 import json
 
 from ..com_helpers import get_app, get_proj, task_to_dict, _fmt_date
-from ..guards import validate_safe_path, is_dry_run, dry_run_response
+from ..guards import validate_safe_path
 
 
 def register_snapshots_tools(mcp):
@@ -22,8 +22,6 @@ def register_snapshots_tools(mcp):
             include_resources: Include resource data (default True).
         """
         output_path = validate_safe_path(output_path)
-        if is_dry_run():
-            return dry_run_response("snapshot_to_json", {"output_path": output_path, "include_resources": include_resources})
         app  = get_app()
         proj = get_proj(app)
 

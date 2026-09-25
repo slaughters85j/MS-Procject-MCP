@@ -60,8 +60,11 @@ def paginate(
     """
     total = len(items)
 
-    # Clamp offset to valid range
-    offset = max(0, min(offset, total))
+    if offset < 0:
+        raise ValueError("offset cannot be negative.")
+    if limit == 0:
+        raise ValueError("limit must be a positive page size, or -1 for all.")
+    offset = min(offset, total)
 
     # limit=-1 or None means uncapped
     if limit is None or limit < 0:

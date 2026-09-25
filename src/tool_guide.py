@@ -29,12 +29,8 @@ Single-to-Bulk pairs:
   add_task              -> bulk_add_tasks
   update_task           -> bulk_update_tasks (or bulk_update_rag for RAG only)
   add_predecessor       -> bulk_add_predecessors
-  remove_predecessor    -> bulk_remove_predecessors
   set_task_mode         -> bulk_set_task_mode
-  set_constraint        -> bulk_set_constraints
   set_deadline          -> bulk_set_deadlines
-  set_task_active       -> bulk_set_task_active
-  update_custom_fields  -> bulk_update_custom_fields
   assign_resource       -> bulk_assign_resources
 
 After any bulk manual-schedule change, call calculate_project to refresh dates.
@@ -49,7 +45,15 @@ FAST READ PATH (mpxj):
 
 ENVIRONMENT:
   MSPROJECT_SAFE_ROOT   Directory all file tools are confined to (required).
-  MSPROJECT_DRY_RUN=1   Read/preview-only mode; mutations logged but not applied.
+  MSPROJECT_DRY_RUN=1   Preview-only mode: every mutating tool returns a dry-run preview.
+  MSPROJECT_AUTOSAVE=0  Do not save after each write (default: save), keeping undo history.
+
+WRITES:
+  Every mutating tool accepts an optional project_id (path or hash_id from
+  get_project_identity) and refuses to run if a different project is active.
+  Failures return isError with {"error", "error_type"}. Dates are YYYY-MM-DD;
+  a date-only finish means the end of that working day.
+  move_task and copy_task_structure assign NEW UniqueIDs (see uid_map in the response).
 
 HARDENING:
   ProjectSession manages COM lifecycle. Use session_info to check state.
@@ -70,9 +74,10 @@ _TOOL_GUIDE = {
         "Use bulk_* tools when operating on 2+ items — they suspend auto-recalculation and batch saves.",
         "Call calculate_project after bulk manual-schedule changes if auto-calc was suspended.",
         "Use dry_run_bulk_update to preview changes safely before bulk_update_tasks.",
-        "Use undo_last (up to 10) as a safety net after any bulk mutation.",
+        "undo_last only reaches back to the last save; with autosave on (default) every write saves. Set MSPROJECT_AUTOSAVE=0 to keep undo history.",
         "MSPROJECT_SAFE_ROOT must be set before any file-taking tool will run.",
-        "Set MSPROJECT_DRY_RUN=1 for read/preview-only mode.",
+        "Set MSPROJECT_DRY_RUN=1 for read/preview-only mode (applies to every mutating tool).",
+        "Pass project_id on writes to guarantee they land in the intended project.",
         "Check health_check to verify which hardening modules loaded successfully.",
     ],
     "bulk_pairs": {

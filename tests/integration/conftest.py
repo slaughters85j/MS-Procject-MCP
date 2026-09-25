@@ -31,6 +31,33 @@ logger = logging.getLogger(__name__)
 
 IS_WINDOWS = sys.platform == "win32"
 
+
+def _project_already_running():
+    """True if WINPROJ.EXE is running. Dispatch would attach to that (the user's) instance,
+    and these fixtures hide, close and quit the instance they get, so never run then."""
+    try:
+        result = subprocess.run(["tasklist", "/FI", "IMAGENAME eq WINPROJ.EXE"],
+                                capture_output=True, text=True, timeout=5)
+        return "WINPROJ.EXE" in result.stdout
+    except Exception:
+        return False
+
+
+def _launch_project(attempts=3, delay=2.0):
+    """
+    Start a private MS Project instance. DispatchEx asks COM for a new server process;
+    cold activation can fail transiently with CO_E_SERVER_EXEC_FAILURE, so retry with backoff.
+    """
+    import win32com.client
+    last = None
+    for attempt in range(attempts):
+        try:
+            return win32com.client.DispatchEx("MSProject.Application")
+        except Exception as e:  # pywintypes.com_error
+            last = e
+            time.sleep(delay * (attempt + 1))
+    raise last
+
 def _check_project_available():
     """
     Probe whether MS Project COM automation works.
@@ -47,13 +74,17 @@ def _check_project_available():
     except ImportError:
         return False, "pywin32 not installed (pip install pywin32)"
 
+    if _project_already_running():
+        return False, ("MS Project is already running. Integration tests start, hide and quit their own "
+                       "instance, so close Project first (they will not touch a running session).")
+
     try:
         pythoncom.CoInitialize()
-        app = win32com.client.Dispatch("MSProject.Application")
+        app = _launch_project()
         app.Visible = False
         app.DisplayAlerts = False
         # Quick sanity: can we create a blank project?
-        app.FileNew()
+        app.FileNew(SummaryInfo=False)
         count = app.Projects.Count
         app.FileClose(Save=0)
         app.Quit(0)  # 0 = pjDoNotSave
@@ -150,9 +181,9 @@ def project_app(com_init):
     If teardown fails, logs the error but does not raise — we don't
     want teardown failures to mask test failures.
     """
-    import win32com.client
-
-    app = win32com.client.Dispatch("MSProject.Application")
+    if _project_already_running():
+        pytest.skip("MS Project is already running; refusing to attach to (and then quit) that instance.")
+    app = _launch_project()
     app.Visible = False
     app.DisplayAlerts = False
     logger.info("Launched MS Project (PID-scoped, invisible)")

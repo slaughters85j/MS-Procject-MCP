@@ -8,6 +8,7 @@ NOTE: Testing against live MS Project remains required.
 """
 
 import logging
+from typing import Union
 from dataclasses import asdict
 
 from .project_identity import (
@@ -63,10 +64,9 @@ def register_identity_tools(mcp):
         except RuntimeError as e:
             return {"valid": False, "error": str(e)}
 
-    # Registered under its own name: the legacy server.py switch_project keeps its
-    # name and signature, and FastMCP skips a second tool with the same name.
-    @mcp.tool(name="switch_project_confirmed")
-    def switch_project(project_name_or_index: str, confirm: bool = False) -> dict:
+    # Distinct from the legacy switch_project, which switches immediately.
+    @mcp.tool()
+    def switch_project_confirmed(project_name_or_index: Union[int, str], confirm: bool = False) -> dict:
         """
         Explicitly switch the active project in MS Project.
 

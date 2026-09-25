@@ -279,8 +279,9 @@ class ProjectSession:
                 )
                 self._we_launched = True
 
-            # Configure visibility
-            if self._headless:
+            # Configure visibility. Only an instance we launched may be hidden: hiding a
+            # user's own Project window mid-session would take it away from them.
+            if self._headless and self._we_launched:
                 try:
                     self._app.Visible = False
                     logger.info("Project started in headless mode")
@@ -357,6 +358,25 @@ class ProjectSession:
     # ------------------------------------------------------------------
     # Info
     # ------------------------------------------------------------------
+
+    def ensure_attached(self) -> bool:
+        """
+        Attach to an already-running Project if not attached (never launches, never hides).
+
+        Called before each tool so the hardening layer (identity, calc policy, UI, store, bulk)
+        works without an explicit session_attach. Returns True when attached afterwards.
+        """
+        if self.is_attached:
+            return True
+        if not _find_existing_project_processes():
+            return False
+        try:
+            self._headless = False
+            self._allow_attach_existing = True
+            self.attach()
+        except Exception as e:
+            logger.debug("Auto-attach failed: %s", e)
+        return self.is_attached
 
     def get_info(self) -> SessionInfo:
         """Return a snapshot of current session state."""

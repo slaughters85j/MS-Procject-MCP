@@ -3,8 +3,17 @@ Cost reporting: earned value, cost summary, and timephased data.
 """
 
 import json
+from typing import Literal
 
-from ..com_helpers import get_app, get_proj, _parse_date, _fmt_date, _find_task
+from ..com_helpers import get_app, get_proj, _fmt_date, _find_task
+from ..com_write import parse_iso, to_com_date, TIMESCALES
+
+# PjTaskTimescaledData values (read from the Project type library).
+TASK_TIMESCALED_DATA = {
+    "work": 0, "baseline_work": 1, "actual_work": 2, "cost": 5, "baseline_cost": 6,
+    "actual_cost": 7, "cumulative_work": 176, "cumulative_cost": 177,
+    "remaining_cumulative_work": 1343,
+}
 
 
 def register_cost_tools(mcp):
@@ -176,61 +185,40 @@ def register_cost_tools(mcp):
         unique_id:  int,
         start_date: str,
         end_date:   str,
-        timescale:  str = "weekly",
-        data_type:  str = "work",
+        timescale:  Literal["daily", "weekly", "monthly"] = "weekly",
+        data_type:  Literal["work", "cost", "actual_work", "actual_cost", "baseline_work",
+                            "baseline_cost", "cumulative_work", "cumulative_cost",
+                            "remaining_cumulative_work"] = "work",
     ) -> str:
         """
         Get period-by-period timephased data for a task. Essential for S-curves,
-        resource loading charts, and cash flow forecasts.
+        resource loading charts, and cash flow forecasts. Work values are in minutes.
 
         Args:
             unique_id:  Task UniqueID.
             start_date: Period start as YYYY-MM-DD.
-            end_date:   Period end as YYYY-MM-DD.
+            end_date:   Period end as YYYY-MM-DD (not before start_date).
             timescale:  'daily', 'weekly', or 'monthly' (default 'weekly').
-            data_type:  'work', 'cost', 'actual_work', 'actual_cost',
-                        'remaining_work', 'baseline_work', 'baseline_cost' (default 'work').
+            data_type:  'work', 'cost', 'actual_work', 'actual_cost', 'baseline_work',
+                        'baseline_cost', 'cumulative_work', 'cumulative_cost',
+                        'remaining_cumulative_work' (default 'work').
         """
         app  = get_app()
         proj = get_proj(app)
-
-        TIMESCALE_MAP = {"daily": 3, "weekly": 4, "monthly": 5}
-        ts = TIMESCALE_MAP.get(timescale.lower())
-        if ts is None:
-            return json.dumps({"error": f"Unknown timescale '{timescale}'. Use: daily, weekly, monthly."})
-
-        # pjTaskTimescaledWork=1, Cost=2, ActualWork=3, ActualCost=4,
-        # RemainingWork=9, BaselineWork=22, BaselineCost=23
-        TYPE_MAP = {
-            "work": 1, "cost": 2, "actual_work": 3, "actual_cost": 4,
-            "remaining_work": 9, "baseline_work": 22, "baseline_cost": 23,
-        }
-        dt = TYPE_MAP.get(data_type.lower())
-        if dt is None:
-            return json.dumps({"error": f"Unknown data_type '{data_type}'. Use: {list(TYPE_MAP.keys())}."})
-
         t = _find_task(proj, unique_id)
         if t is None:
             return json.dumps({"error": f"Task UniqueID {unique_id} not found."})
+        if parse_iso(end_date, "end_date")[0] < parse_iso(start_date, "start_date")[0]:
+            return json.dumps({"error": "end_date is before start_date."})
 
-        sd = _parse_date(start_date)
-        ed = _parse_date(end_date)
-        if sd is None or ed is None:
-            return json.dumps({"error": "Both start_date and end_date are required (YYYY-MM-DD)."})
-
-        periods = []
-        try:
-            tsd = t.TimeScaleData(sd, ed, dt, ts)
-            for item in tsd:
-                val = item.Value
-                periods.append({
-                    "start": _fmt_date(item.StartDate),
-                    "end":   _fmt_date(item.EndDate),
-                    "value": float(val) if val else 0.0,
-                })
-        except Exception as e:
-            return json.dumps({"error": f"TimeScaleData failed: {e}"})
-
+        tsd = t.TimeScaleData(to_com_date(proj, start_date, field="start_date"),
+                              to_com_date(proj, end_date, end_of_day=True, field="end_date"),
+                              TASK_TIMESCALED_DATA[data_type], TIMESCALES[timescale])
+        periods = [{
+            "start": _fmt_date(item.StartDate),
+            "end":   _fmt_date(item.EndDate),
+            "value": float(item.Value) if item.Value not in ("", None) else 0.0,
+        } for item in tsd]
         return json.dumps({
             "unique_id": unique_id,
             "name":      t.Name,

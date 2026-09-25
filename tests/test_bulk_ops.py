@@ -218,7 +218,8 @@ class TestDryRun:
         assert result.mode == "dry_run"
         assert result.succeeded == 1
         assert result.items[0].status == "ok"
-        assert result.items[0].fields_written["Name"] == "Old name"
+        assert result.items[0].current_values["Name"] == "Old name"
+        assert result.items[0].fields_written["Name"] != "Old name"
 
     def test_skips_already_matching(self):
         task = _make_task(1, Name="Same")

@@ -24,22 +24,22 @@ from src.calc_policy import (
 
 class TestCalcMode:
     def test_automatic_value(self):
-        assert CalcMode.AUTOMATIC == 0
+        assert CalcMode.AUTOMATIC == -1
 
     def test_manual_value(self):
-        assert CalcMode.MANUAL == 1
+        assert CalcMode.MANUAL == 0
 
     def test_from_int(self):
-        assert CalcMode(0) == CalcMode.AUTOMATIC
-        assert CalcMode(1) == CalcMode.MANUAL
+        assert CalcMode(-1) == CalcMode.AUTOMATIC
+        assert CalcMode(0) == CalcMode.MANUAL
 
     def test_invalid_value_raises(self):
         with pytest.raises(ValueError):
             CalcMode(99)
 
     def test_int_cast(self):
-        assert int(CalcMode.AUTOMATIC) == 0
-        assert int(CalcMode.MANUAL) == 1
+        assert int(CalcMode.AUTOMATIC) == -1
+        assert int(CalcMode.MANUAL) == 0
 
 
 # ---------------------------------------------------------------------------
@@ -50,18 +50,18 @@ class TestCalcState:
     def test_to_dict(self):
         state = CalcState(
             mode="automatic",
-            mode_value=0,
+            mode_value=-1,
             was_deferred=True,
-            original_mode=0,
+            original_mode=-1,
         )
         d = state.to_dict()
         assert d["mode"] == "automatic"
-        assert d["mode_value"] == 0
+        assert d["mode_value"] == -1
         assert d["was_deferred"] is True
-        assert d["original_mode"] == 0
+        assert d["original_mode"] == -1
 
     def test_defaults(self):
-        state = CalcState(mode="manual", mode_value=1, was_deferred=False)
+        state = CalcState(mode="manual", mode_value=0, was_deferred=False)
         assert state.original_mode is None
 
 
@@ -72,12 +72,12 @@ class TestCalcState:
 class TestGetCalcMode:
     def test_reads_automatic(self):
         app = MagicMock()
-        app.Calculation = 0
+        app.Calculation = -1
         assert get_calc_mode(app) == CalcMode.AUTOMATIC
 
     def test_reads_manual(self):
         app = MagicMock()
-        app.Calculation = 1
+        app.Calculation = 0
         assert get_calc_mode(app) == CalcMode.MANUAL
 
     def test_invalid_value_returns_automatic(self):
@@ -101,20 +101,20 @@ class TestGetCalcMode:
 class TestSetCalcMode:
     def test_sets_mode_and_returns_previous(self):
         app = MagicMock()
-        app.Calculation = 0  # currently automatic
+        app.Calculation = -1  # currently automatic
         previous = set_calc_mode(app, CalcMode.MANUAL)
         assert previous == CalcMode.AUTOMATIC
-        assert app.Calculation == 1
+        assert app.Calculation == 0
 
     def test_set_same_mode(self):
         app = MagicMock()
-        app.Calculation = 1
+        app.Calculation = 0
         previous = set_calc_mode(app, CalcMode.MANUAL)
         assert previous == CalcMode.MANUAL
 
     def test_com_error_raises_runtime(self):
         app = MagicMock()
-        app.Calculation = 0
+        app.Calculation = -1
         # Make the setter raise
         type(app).Calculation = PropertyMock(
             return_value=0,
@@ -133,7 +133,7 @@ class TestDeferredCalc:
         """Should switch to MANUAL on entry, restore on exit."""
         app = MagicMock()
         # Track mode changes
-        modes = [0]  # start automatic
+        modes = [-1]  # start automatic
 
         def get_calc():
             return modes[-1]
@@ -148,17 +148,17 @@ class TestDeferredCalc:
 
         with deferred_calc(app) as state:
             assert state.was_deferred is True
-            assert state.original_mode == 0
+            assert state.original_mode == -1
             # During context, mode should be MANUAL
-            assert app.Calculation == 1
+            assert app.Calculation == 0
 
         # After context, mode should be restored to AUTOMATIC
-        assert app.Calculation == 0
+        assert app.Calculation == -1
 
     def test_no_defer_when_already_manual(self):
         """Should not change mode if already manual."""
         app = MagicMock()
-        app.Calculation = 1  # already manual
+        app.Calculation = 0  # already manual
 
         with deferred_calc(app) as state:
             assert state.was_deferred is False
@@ -166,17 +166,17 @@ class TestDeferredCalc:
 
     def test_yields_calc_state(self):
         app = MagicMock()
-        app.Calculation = 0
+        app.Calculation = -1
 
         with deferred_calc(app) as state:
             assert isinstance(state, CalcState)
             assert state.mode == "automatic"
-            assert state.mode_value == 0
+            assert state.mode_value == -1
 
     def test_restores_on_exception(self):
         """Mode must be restored even when body raises."""
         app = MagicMock()
-        modes = [0]
+        modes = [-1]
         type(app).Calculation = property(
             lambda self: modes[-1],
             lambda self, v: modes.append(v),
@@ -184,11 +184,11 @@ class TestDeferredCalc:
 
         with pytest.raises(ValueError):
             with deferred_calc(app):
-                assert app.Calculation == 1
+                assert app.Calculation == 0
                 raise ValueError("boom")
 
         # Must restore to automatic despite the exception
-        assert app.Calculation == 0
+        assert app.Calculation == -1
 
     def test_set_fails_on_entry_still_yields(self):
         """If switching to MANUAL fails, should still yield (with auto-calc)."""
@@ -196,7 +196,7 @@ class TestDeferredCalc:
         call_count = [0]
 
         def get_calc():
-            return 0  # always automatic
+            return -1  # always automatic
 
         def set_calc(val):
             call_count[0] += 1
@@ -217,7 +217,7 @@ class TestDeferredCalc:
         call_count = [0]
 
         def get_calc():
-            return 0  # always reads as automatic
+            return -1  # always reads as automatic
 
         def set_calc(val):
             call_count[0] += 1
@@ -241,7 +241,7 @@ class TestDeferredCalc:
         """If Calculate succeeds but Name access fails, still report success."""
         app = MagicMock()
         project = MagicMock()
-        project.Calculate.return_value = None
+        app.CalculateProject.return_value = None
         type(project).Name = property(lambda self: (_ for _ in ()).throw(Exception("stale proxy")))
         result = calculate_project(app, project=project)
         assert result["recalculated"] is True
@@ -266,7 +266,8 @@ class TestCalculateProject:
         project = MagicMock()
         project.Name = "test.mpp"
         result = calculate_project(app, project=project)
-        project.Calculate.assert_called_once()
+        project.Activate.assert_called_once()
+        app.CalculateProject.assert_called_once()
         app.CalculateAll.assert_not_called()
         assert result["recalculated"] is True
         assert result["scope"] == "project"
@@ -281,7 +282,7 @@ class TestCalculateProject:
     def test_calculate_project_error(self):
         app = MagicMock()
         project = MagicMock()
-        project.Calculate.side_effect = Exception("Recalc failed")
+        app.CalculateProject.side_effect = Exception("Recalc failed")
         result = calculate_project(app, project=project)
         assert result["recalculated"] is False
         assert result["scope"] == "project"
@@ -295,14 +296,14 @@ class TestCalculateProject:
 class TestGetCalcState:
     def test_returns_state_without_modifying(self):
         app = MagicMock()
-        app.Calculation = 1  # manual
+        app.Calculation = 0  # manual
         state = get_calc_state(app)
         assert state.mode == "manual"
-        assert state.mode_value == 1
+        assert state.mode_value == 0
         assert state.was_deferred is False
         assert state.original_mode is None
         # Verify Calculation was only read, not set
-        assert app.Calculation == 1
+        assert app.Calculation == 0
 
 
 # ---------------------------------------------------------------------------
@@ -313,7 +314,7 @@ class TestDeferredCalcIntegration:
     def test_batch_workflow(self):
         """Simulate the intended batch workflow."""
         app = MagicMock()
-        modes = [0]  # start automatic
+        modes = [-1]  # start automatic
         type(app).Calculation = property(
             lambda self: modes[-1],
             lambda self, v: modes.append(v),
@@ -325,7 +326,7 @@ class TestDeferredCalcIntegration:
             # 2. Do "batch writes" (simulated)
 
         # 3. Mode is restored to automatic
-        assert app.Calculation == 0
+        assert app.Calculation == -1
 
         # 4. Explicit recalc
         result = calculate_project(app)
@@ -334,7 +335,7 @@ class TestDeferredCalcIntegration:
     def test_nested_deferred_calc_is_noop(self):
         """Inner deferred_calc should be a no-op if already manual."""
         app = MagicMock()
-        modes = [0]  # start automatic
+        modes = [-1]  # start automatic
         type(app).Calculation = property(
             lambda self: modes[-1],
             lambda self, v: modes.append(v),
@@ -342,7 +343,7 @@ class TestDeferredCalcIntegration:
 
         with deferred_calc(app) as outer:
             assert outer.was_deferred is True
-            assert app.Calculation == 1
+            assert app.Calculation == 0
 
             with deferred_calc(app) as inner:
                 # Already manual, so no defer needed
@@ -350,7 +351,7 @@ class TestDeferredCalcIntegration:
                 assert inner.mode == "manual"
 
             # Inner exit should NOT restore (was_deferred=False)
-            assert app.Calculation == 1
+            assert app.Calculation == 0
 
         # Outer exit restores to automatic
-        assert app.Calculation == 0
+        assert app.Calculation == -1

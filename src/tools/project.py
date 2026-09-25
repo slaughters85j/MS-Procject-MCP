@@ -2,13 +2,36 @@
 Project file lifecycle: open, create, inspect, save, close, recalculate, and XML round trips.
 """
 
-import datetime
 import json
 
 from ..com_helpers import (
-    _find_app, _launch_app, get_app, get_proj, _get_mpd, _parse_date, _count_resources,
+    _find_app, _launch_app, get_app, get_proj, _get_mpd, _count_resources,
 )
-from ..guards import validate_safe_path, is_dry_run, dry_run_response
+from ..com_write import to_com_date, commit, autosave_enabled, invoke_positional
+from ..guards import validate_safe_path
+
+# PjProjectUpdate (Project type library): pj0or100Percent=0, pj0to100Percent=1, pjReschedule=2.
+PJ_0_OR_100, PJ_0_TO_100, PJ_RESCHEDULE = 0, 1, 2
+PJ_DO_NOT_SAVE, PJ_SAVE = 0, 1
+PROPERTY_FIELDS = {"title": "Title", "manager": "Manager", "company": "Company", "author": "Author",
+                   "subject": "Subject", "start": "ProjectStart", "status_date": "StatusDate"}
+
+
+def _require_saved_file(proj, action):
+    if not proj.Path:
+        raise ValueError(f"'{proj.Name}' has never been saved; use save_project_as before you {action}.")
+
+
+def _save_as(app, file_path, format):
+    """FileSaveAs in mpp or MS Project XML. Raises ValueError for unsupported formats."""
+    fmt = format.lower().strip()
+    if fmt == "mpp":
+        app.FileSaveAs(Name=file_path, Format=0, Backup=False, ReadOnly=False)
+    elif fmt == "xml":
+        # FormatID is the 10th argument; passed by name it is ignored and a binary .mpp is written.
+        invoke_positional(app, "FileSaveAs", file_path, None, None, None, None, None, None, None, None, "MSProject.XML")
+    else:
+        raise ValueError(f"Unsupported format '{format}'. Use 'mpp' or 'xml' (use export_csv for CSV).")
 
 
 def register_project_tools(mcp):
@@ -24,7 +47,6 @@ def register_project_tools(mcp):
         app = _find_app()
         if app is None:
             app = _launch_app()
-
         app.FileOpen(file_path)
         proj = app.ActiveProject
         return json.dumps({
@@ -36,11 +58,11 @@ def register_project_tools(mcp):
             "finish":     str(proj.ProjectFinish)[:10],
         }, indent=2)
 
-
     @mcp.tool()
     def new_project(title: str = "New Project", start: str = "") -> str:
         """
-        Create a new blank project without needing a file on disk.
+        Create a new blank, untitled project. It becomes the active project, so later writes go
+        to it; it is not saved to disk until save_project_as is called.
 
         Args:
             title: Project title (default "New Project").
@@ -49,139 +71,106 @@ def register_project_tools(mcp):
         app = _find_app()
         if app is None:
             app = _launch_app()
-
-        app.FileNew()
+        app.FileNew(SummaryInfo=False)
         proj = app.ActiveProject
         proj.Title = title
         if start:
-            proj.ProjectStart = _parse_date(start)
-
-        return json.dumps({
-            "status": "created",
-            "title":  proj.Title,
-            "name":   proj.Name,
-            "start":  str(proj.ProjectStart)[:10],
-        }, indent=2)
-
+            proj.ProjectStart = to_com_date(proj, start, field="start")
+        return json.dumps({"status": "created", "title": proj.Title, "name": proj.Name,
+                           "start": str(proj.ProjectStart)[:10],
+                           "note": "Untitled project is now active; call save_project_as to give it a file."}, indent=2)
 
     @mcp.tool()
     def get_project_info() -> str:
         """Get summary information about the currently active project."""
         app  = get_app()
         proj = get_proj(app)
-        mpd  = _get_mpd(proj)
+        tasks = [t for t in proj.Tasks if t is not None]
 
         def fmt(dt):
-            try:
-                return str(dt)[:10] if dt else None
-            except Exception:
-                return None
-
-        task_count    = sum(1 for t in proj.Tasks if t is not None)
-        summary_count = sum(1 for t in proj.Tasks if t is not None and t.Summary)
-        mile_count    = sum(1 for t in proj.Tasks if t is not None and t.Milestone)
-        critical      = sum(1 for t in proj.Tasks if t is not None and t.Critical and not t.Summary)
-
-        # Safe reads for optional metadata
-        def safe_read(attr):
-            try:
-                return getattr(proj, attr, "") or ""
-            except Exception:
-                return ""
+            return str(dt)[:10] if dt and str(dt) != "NA" else None
 
         return json.dumps({
             "name":            proj.Name,
             "full_path":       proj.FullName,
-            "title":           safe_read("Title"),
-            "manager":         safe_read("Manager"),
-            "company":         safe_read("Company"),
-            "author":          safe_read("Author"),
-            "subject":         safe_read("Subject"),
+            "title":           proj.Title or "",
+            "manager":         proj.Manager or "",
+            "company":         proj.Company or "",
+            "author":          proj.Author or "",
+            "subject":         proj.Subject or "",
             "start":           fmt(proj.ProjectStart),
             "finish":          fmt(proj.ProjectFinish),
-            "status_date":     fmt(getattr(proj, "StatusDate", None)),
-            "calendar":        str(proj.Calendar) if proj.Calendar else "",
-            "tasks_total":     task_count,
-            "summary_tasks":   summary_count,
-            "milestones":      mile_count,
-            "critical_tasks":  critical,
+            "status_date":     fmt(proj.StatusDate),
+            "calendar":        proj.Calendar.Name,
+            "tasks_total":     len(tasks),
+            "summary_tasks":   sum(1 for t in tasks if t.Summary),
+            "milestones":      sum(1 for t in tasks if t.Milestone),
+            "critical_tasks":  sum(1 for t in tasks if t.Critical and not t.Summary),
             "resources":       _count_resources(proj),
-            "minutes_per_day": mpd,
+            "hours_per_day":   proj.HoursPerDay,
+            "minutes_per_day": _get_mpd(proj),
+            "autosave":        autosave_enabled(),
         }, indent=2)
-
 
     @mcp.tool()
     def set_project_properties(properties_json: str) -> str:
         """
-        Set project metadata properties.
+        Set project metadata properties. Unknown keys are rejected; dates are validated first.
 
         Args:
-            properties_json: JSON string with fields to set. All optional:
-                title, manager, company, author, subject, status_date (YYYY-MM-DD),
-                start (YYYY-MM-DD).
+            properties_json: JSON object with any of: title, manager, company, author, subject,
+                status_date (YYYY-MM-DD), start (YYYY-MM-DD).
                 Example: '{"title": "EXPO 2030", "manager": "John", "company": "ERC"}'
         """
-        if is_dry_run():
-            return dry_run_response("set_project_properties", {"properties_json": properties_json})
         props = json.loads(properties_json)
-        app   = get_app()
-        proj  = get_proj(app)
-
-        changed = []
-        if "title" in props:
-            proj.Title = props["title"];       changed.append("title")
-        if "manager" in props:
-            proj.Manager = props["manager"];   changed.append("manager")
-        if "company" in props:
-            proj.Company = props["company"];   changed.append("company")
-        if "author" in props:
-            proj.Author = props["author"];     changed.append("author")
-        if "subject" in props:
-            proj.Subject = props["subject"];   changed.append("subject")
-        if "start" in props and props["start"]:
-            proj.ProjectStart = _parse_date(props["start"]); changed.append("start")
-        if "status_date" in props and props["status_date"]:
-            proj.StatusDate = _parse_date(props["status_date"]); changed.append("status_date")
-
-        app.FileSave()
-        return json.dumps({"status": "updated", "changed": changed}, indent=2)
-
+        if not isinstance(props, dict) or not props:
+            raise ValueError("properties_json must be a non-empty JSON object.")
+        unknown = [k for k in props if k not in PROPERTY_FIELDS]
+        if unknown:
+            raise ValueError(f"Unknown properties {unknown}. Supported: {list(PROPERTY_FIELDS)}.")
+        app  = get_app()
+        proj = get_proj(app)
+        values = {k: to_com_date(proj, v, end_of_day=(k == "status_date"), field=k) if k in ("start", "status_date")
+                  else str(v) for k, v in props.items()}
+        for key, value in values.items():
+            setattr(proj, PROPERTY_FIELDS[key], value)
+        commit(app, proj)
+        return json.dumps({"status": "updated", "changed": list(values)}, indent=2)
 
     @mcp.tool()
     def save_project() -> str:
-        """Save the active project (in place)."""
-        if is_dry_run():
-            return dry_run_response("save_project", {})
-        app = get_app()
+        """Save the active project in place (an untitled project needs save_project_as)."""
+        app  = get_app()
+        proj = get_proj(app)
+        _require_saved_file(proj, "save it")
         app.FileSave()
-        return "Project saved."
-
+        return json.dumps({"status": "saved", "full_path": proj.FullName}, indent=2)
 
     @mcp.tool()
     def save_project_as(file_path: str, format: str = "mpp") -> str:
         """
-        Save the active project to a new path.
-        format: 'mpp' (default), 'xml', 'csv'
+        Save the active project to a new path. Like File > Save As, the open project then IS the
+        new file: later writes and saves go to it, not to the original.
+        format: 'mpp' (default) or 'xml'.
         """
         file_path = validate_safe_path(file_path)
-        if is_dry_run():
-            return dry_run_response("save_project_as", {"file_path": file_path, "format": format})
-        fmt_map = {"mpp": 0, "xml": 22, "csv": 23}
-        fmt_id  = fmt_map.get(format.lower(), 0)
-        app     = get_app()
-        app.FileSaveAs(Name=file_path, Format=fmt_id, Backup=False, ReadOnly=False)
-        return f"Project saved as: {file_path}"
-
+        app = get_app()
+        previous = app.ActiveProject.FullName
+        _save_as(app, file_path, format)
+        return json.dumps({"status": "saved", "full_path": app.ActiveProject.FullName, "format": format.lower(),
+                           "previous_path": previous,
+                           "note": "The active project is now the new file."}, indent=2)
 
     @mcp.tool()
     def close_project(save: bool = False) -> str:
         """Close the active project. Set save=True to save before closing."""
-        if is_dry_run():
-            return dry_run_response("close_project", {"save": save})
-        app = get_app()
-        app.FileClose(Save=1 if save else 0)
-        return "Project closed."
-
+        app  = get_app()
+        proj = get_proj(app)
+        if save:
+            _require_saved_file(proj, "close it with save=True")
+        name = proj.Name
+        app.FileCloseEx(Save=PJ_SAVE if save else PJ_DO_NOT_SAVE)
+        return json.dumps({"status": "closed", "name": name, "saved": save}, indent=2)
 
     @mcp.tool()
     def import_xml(file_path: str) -> str:
@@ -189,16 +178,27 @@ def register_project_tools(mcp):
         Open an MS Project XML file (e.g. the consolidated EXPO 2030 roadmap).
         MS Project must be running.
         """
-        file_path = validate_safe_path(file_path)  # defense-in-depth; open_project also validates
-        return open_project(file_path)
-
+        return open_project(validate_safe_path(file_path))
 
     @mcp.tool()
     def export_xml(output_path: str) -> str:
-        """Export the active project to MS Project XML format."""
-        output_path = validate_safe_path(output_path)  # defense-in-depth; save_project_as also validates
-        return save_project_as(output_path, format="xml")
-
+        """
+        Export the active project to MS Project XML format. The open project is unchanged
+        and stays active (an XML save does not re-target it).
+        """
+        output_path = validate_safe_path(output_path)
+        app  = get_app()
+        proj = get_proj(app)
+        original = proj.FullName
+        _save_as(app, output_path, "xml")
+        if app.ActiveProject.FullName != original:  # defensive: never leave the export copy active
+            app.FileCloseEx(Save=PJ_DO_NOT_SAVE)
+            app.FileOpenEx(Name=original)
+        with open(output_path, "rb") as fp:
+            if not fp.read(64).lstrip().startswith(b"<?xml"):
+                raise RuntimeError("MS Project did not write XML to " + output_path)
+        return json.dumps({"status": "exported", "path": output_path,
+                           "active_project": app.ActiveProject.FullName}, indent=2)
 
     @mcp.tool()
     def calculate_project() -> str:
@@ -210,109 +210,67 @@ def register_project_tools(mcp):
         app.CalculateProject()
         return json.dumps({"status": "calculated", "project": app.ActiveProject.Name})
 
-
     @mcp.tool()
     def update_project(complete_through: str, set_0_or_100: bool = False) -> str:
         """
-        Mark all tasks complete through a given date (the weekly PMO ritual).
-        Tasks that should have finished by the date get their % complete updated.
+        Update progress for all tasks through a given date (the weekly PMO ritual).
 
         Args:
-            complete_through: Date as YYYY-MM-DD — tasks scheduled through this date are updated.
-            set_0_or_100:     If True, tasks are set to 0% or 100% only (no partial). Default False.
+            complete_through: Date as YYYY-MM-DD (end of that working day).
+            set_0_or_100:     True: tasks are 0% or 100% only. False (default): partial percentages
+                              for tasks in progress on the date.
         """
-        if is_dry_run():
-            return dry_run_response("update_project", {"complete_through": complete_through, "set_0_or_100": set_0_or_100})
         app  = get_app()
         proj = get_proj(app)
-        dt   = _parse_date(complete_through)
-        if dt is None:
-            return json.dumps({"error": "complete_through date is required (YYYY-MM-DD)."})
-
-        # COM VBA signature: UpdateProject(All, UpdateDate, Action)
-        # All = True (entire project), UpdateDate = date, Action:
-        #   pjUpdateProjectStatusPctComplete = 0
-        #   pjUpdateProject0or100 = 1
-        action = 1 if set_0_or_100 else 0
-        try:
-            app.UpdateProject(True, dt, action)
-        except Exception:
-            try:
-                # Alternative: just date
-                app.UpdateProject(True, dt)
-            except Exception:
-                app.UpdateProject(dt)
-        app.FileSave()
-
-        return json.dumps({
-            "status": "updated",
-            "complete_through": complete_through,
-            "set_0_or_100": set_0_or_100,
-            "project": proj.Name,
-        }, indent=2)
-
+        date = to_com_date(proj, complete_through, end_of_day=True, field="complete_through")
+        app.UpdateProject(True, date, PJ_0_OR_100 if set_0_or_100 else PJ_0_TO_100)
+        commit(app, proj)
+        return json.dumps({"status": "updated", "complete_through": complete_through,
+                           "set_0_or_100": set_0_or_100, "project": proj.Name}, indent=2)
 
     @mcp.tool()
     def reschedule_incomplete_work(reschedule_from: str = "") -> str:
         """
         Move remaining work on incomplete tasks to start after the given date
-        (or the project status date if not specified).
+        (or the project status date if not specified). Actuals are not changed.
 
         Args:
-            reschedule_from: Date as YYYY-MM-DD. Empty = use project status date.
+            reschedule_from: Date as YYYY-MM-DD. Empty = use the project status date.
         """
-        if is_dry_run():
-            return dry_run_response("reschedule_incomplete_work", {"reschedule_from": reschedule_from})
         app  = get_app()
         proj = get_proj(app)
-
         if reschedule_from:
-            dt = _parse_date(reschedule_from)
+            date = to_com_date(proj, reschedule_from, end_of_day=True, field="reschedule_from")
+        elif str(proj.StatusDate) != "NA":
+            date = proj.StatusDate
         else:
-            dt = proj.StatusDate
-            if dt is None or str(dt) == "NA":
-                dt = datetime.datetime.now()
-
-        # Set status date, then use UpdateProject to reschedule
-        # The reschedule action = updating incomplete tasks from the status date
-        try:
-            proj.StatusDate = dt
-            # UpdateProject with All=True, date, action=0 to push remaining work
-            app.UpdateProject(True, dt, 0)
-        except Exception:
-            try:
-                app.UpdateProject(True, dt)
-            except Exception:
-                proj.StatusDate = dt  # At minimum set the status date
-        app.FileSave()
-
-        return json.dumps({
-            "status": "rescheduled",
-            "reschedule_from": str(dt)[:10],
-            "project": proj.Name,
-        }, indent=2)
-
+            raise ValueError("No reschedule_from given and the project has no status date.")
+        app.UpdateProject(True, date, PJ_RESCHEDULE)
+        commit(app, proj)
+        return json.dumps({"status": "rescheduled", "reschedule_from": str(date)[:10], "project": proj.Name}, indent=2)
 
     @mcp.tool()
     def undo_last(count: int = 1) -> str:
         """
-        Safety net — undo last N operations in MS Project.
+        Undo the last N MS Project operations (max 10).
+
+        Saving clears MS Project's undo history, and with MSPROJECT_AUTOSAVE on (the default)
+        every write tool saves, so undo only reaches back to the last save. Run the server with
+        MSPROJECT_AUTOSAVE=0 to keep an undo history across tool calls.
 
         Args:
             count: Number of undo steps (default 1, max 10).
         """
-        if is_dry_run():
-            return dry_run_response("undo_last", {"count": count})
-        if count < 1:
-            count = 1
-        if count > 10:
-            count = 10
-
+        count = max(1, min(count, 10))
         app = get_app()
+        undone = 0
         for _ in range(count):
             try:
                 app.EditUndo()
             except Exception:
                 break
-
-        return json.dumps({"status": "undone", "undo_count": count}, indent=2)
+            undone += 1
+        if undone == 0:
+            return json.dumps({"error": "Nothing to undo: MS Project's undo history is empty (it is cleared on every save).",
+                               "autosave": autosave_enabled()})
+        return json.dumps({"status": "undone", "requested": count, "undo_count": undone}, indent=2)
